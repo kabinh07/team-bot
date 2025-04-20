@@ -1,6 +1,7 @@
 import logging
 import random
 import datetime
+from datetime import datetime, time, timedelta
 import dateparser
 from collections import defaultdict
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -20,6 +21,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "YOUR_OPENAI_KEY")
 openai.api_key = OPENAI_API_KEY
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///tasks.db")
 
+
 # --- Database Setup ---
 Base = declarative_base()
 
@@ -30,6 +32,8 @@ class Task(Base):
     description = Column(String)
     status = Column(String)
     timestamp = Column(DateTime)
+    created_by = Column(String)
+    duration = Column(String)
 
 engine = create_engine(DATABASE_URL)
 Base.metadata.create_all(engine)
@@ -64,33 +68,77 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Hi! I'm your AI task bot. Use /addtask, /listtasks, /schedule and more!")
 
 async def add_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = str(update.effective_chat.id)
     task_desc = " ".join(context.args)
-    task = Task(chat_id=chat_id, description=task_desc, status="pending", timestamp=datetime.datetime.now())
+    if not task_desc:
+        await update.message.reply_text("❗ Please provide a task description.")
+        return
+    
+    chat_id = str(update.effective_chat.id)
+
+    username = update.effective_user.username 
+    first_name = update.effective_user.first_name
+    last_name = update.effective_user.last_name or ""
+    full_name = f"{first_name} {last_name}".strip()
+    creator = username or full_name
+    
+    task = Task(chat_id=chat_id, description=task_desc, status="pending", timestamp=datetime.now(), created_by=creator)
     session.add(task)
     session.commit()
-    await update.message.reply_text(f"✅ Task added: {task_desc}")
+    await update.message.reply_text(f"✅ Task added by @{creator}: {task_desc}")
+
 
 async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
-    task_list = session.query(Task).filter_by(chat_id=chat_id).all()
+
+    now = datetime.now()
+    today_start = datetime.combine(now.date(), time.min)
+    today_end = datetime.combine(now.date(), time.max)
+
+    task_list = session.query(Task).filter(
+        Task.chat_id == chat_id,
+        Task.timestamp >= today_start,
+        Task.timestamp <= today_end
+    ).all()
+
     if not task_list:
-        await update.message.reply_text("📭 No tasks yet.")
+        await update.message.reply_text("📭 No tasks for today.")
         return
-    text = "\n".join([f"{i+1}. {t.description} - {t.status}" for i, t in enumerate(task_list)])
-    await update.message.reply_text(f"🗂️ Tasks:\n{text}")
+
+    text = "\n".join([f"{i+1}. {t.description} - {t.status} ({t.duration}) - {t.created_by}" for i, t in enumerate(task_list)])
+    await update.message.reply_text(f"🗂️ Today's Tasks:\n{text}")
+
 
 async def mark_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
+    username = update.effective_user.username 
+    first_name = update.effective_user.first_name
+    last_name = update.effective_user.last_name or ""
+    full_name = f"{first_name} {last_name}".strip()
+    user = username or full_name
     try:
         task_id = int(context.args[0]) - 1
         task_list = session.query(Task).filter_by(chat_id=chat_id).all()
+
+        if task_id < 0 or task_id >=len(task_list):
+            raise IndexError("invalid task list")
+
         task = task_list[task_id]
+
+        if task.created_by != user:
+            await update.message.reply_text(f"⛔ You can only mark your own tasks as done. This one was created by {task.created_by}.")
+            return
+        
         task.status = 'done'
+        duration = datetime.now() - task.timestamp
+        task.duration = str(duration).split('.')[0]
+
         session.commit()
-        await update.message.reply_text("✅ Task marked as done!")
-    except:
+        await update.message.reply_text(f"✅ Task marked as done!\n⏱️ Time taken: {task.duration}")
+
+    except (IndexError, ValueError):
         await update.message.reply_text("❗ Please provide a valid task number.")
+    except Exception as e:
+        await update.message.reply_text(f"❗ An error occurred: {e}")
 
 async def schedule_msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
