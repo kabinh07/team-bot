@@ -11,4 +11,6 @@ services:
     volumes:
       # - ./tasks.db:/app/tasks.db
       - ./main.py:/app/main.py
+      - ./alembic:/app/alembic
+      - ./alembic.ini:/app/alembic.ini
     restart: unless-stopped

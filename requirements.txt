@@ -4,3 +4,4 @@ SQLAlchemy==2.0.40
 dateparser==1.2.0
 openai==0.28
 psycopg2-binary
+alembic

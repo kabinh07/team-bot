@@ -14,6 +14,7 @@ from sqlalchemy import create_engine, Column, Integer, String, DateTime
 from sqlalchemy.orm import sessionmaker, declarative_base
 import os
 import openai
+import subprocess
 
 # --- Configuration ---
 TOKEN = os.getenv("TELEGRAM_TOKEN", "YOUR_TELEGRAM_BOT_TOKEN")
@@ -204,5 +205,7 @@ app.add_handler(CommandHandler("report", gpt_report))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, smart_task))
 
 if __name__ == '__main__':
+    print("Migrating database...")
+    subprocess.run(["python", "migrate.py"])
     print("Bot is running...")
     app.run_polling()
