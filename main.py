@@ -47,7 +47,7 @@ logging.basicConfig(level=logging.INFO)
 def ask_gpt(prompt):
     try:
         response = openai.ChatCompletion.create(
-            model="gpt-4",
+            model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": "You are a helpful assistant who creates tasks and gives motivational advice."},
                 {"role": "user", "content": prompt}
