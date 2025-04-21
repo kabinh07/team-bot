@@ -1,7 +1,6 @@
 import logging
 import random
-import datetime
-from datetime import datetime, time, timedelta
+from datetime import datetime, time, timedelta, timezone
 import dateparser
 from collections import defaultdict
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -16,6 +15,7 @@ from sqlalchemy import or_, and_
 import os
 import openai
 import subprocess
+import asyncio
 
 # --- Configuration ---
 TOKEN = os.getenv("TELEGRAM_TOKEN", "YOUR_TELEGRAM_BOT_TOKEN")
@@ -42,12 +42,16 @@ Base.metadata.create_all(engine)
 Session = sessionmaker(bind=engine)
 session = Session()
 
+BDT = timezone(timedelta(hours=6))
+
 joined_chats = set()
-scheduler = BackgroundScheduler()
+scheduler = BackgroundScheduler(timezone=BDT)
 scheduler.start()
 
 # --- Logging ---
 logging.basicConfig(level=logging.INFO)
+
+daily_motivation_activation = False
 
 # --- OpenAI Assistant ---
 def ask_gpt(prompt):
@@ -191,6 +195,33 @@ async def gpt_motivate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     response = ask_gpt("Give a motivational quote for someone managing tasks.")
     await update.message.reply_text(f"💬 GPT Motivation:\n{response}")
 
+async def send_daily_motivation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global daily_motivation_activation
+    if daily_motivation_activation:
+        await update.message.reply_text(f"💬 Daily Motivation already activated")
+    else:
+        # Calculate the next 10:00 AM
+        now = datetime.now()
+        next_10_am = datetime.combine(now.date(), time(10, 0))  # Set time to 10:00 AM
+
+        # If the current time is past 10:00 AM, schedule for the next day
+        if now >= next_10_am:
+            next_10_am += timedelta(days=1)
+
+        # Schedule the job
+        async def send_motivation():
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=ask_gpt("Give a motivational quote for someone managing tasks.")
+            )
+
+        scheduler.add_job(
+            lambda: asyncio.run(send_motivation()),  # Ensure the coroutine is awaited
+            trigger='date', run_date=next_10_am
+        )
+        daily_motivation_activation = True
+        await update.message.reply_text(f"📝 Daily Motivation scheduled for {next_10_am.strftime('%Y-%m-%d %H:%M')}")
+
 async def gpt_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     task_list = session.query(Task).filter_by(chat_id=chat_id).all()
@@ -208,10 +239,12 @@ app.add_handler(CommandHandler("schedule", schedule_msg))
 app.add_handler(CommandHandler("gptask", gpt_task))
 app.add_handler(CommandHandler("motivate", gpt_motivate))
 app.add_handler(CommandHandler("report", gpt_report))
+app.add_handler(CommandHandler("active_daily_motivation", send_daily_motivation))
+# app.add_handler(CommandHandler("deactive_daily_motivation", deactive_daily_motivation))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, smart_task))
 
 if __name__ == '__main__':
-    print("Migrating database...")
+    logging.info("Migrating database...")
     subprocess.run(["python", "migrate.py"])
-    print("Bot is running...")
+    logging.info("Bot is running...")
     app.run_polling()
