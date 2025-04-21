@@ -12,6 +12,7 @@ from telegram.ext import (
 )
 from sqlalchemy import create_engine, Column, Integer, String, DateTime
 from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy import or_, and_
 import os
 import openai
 import subprocess
@@ -97,8 +98,10 @@ async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     task_list = session.query(Task).filter(
         Task.chat_id == chat_id,
-        Task.timestamp >= today_start,
-        Task.timestamp <= today_end
+        or_(
+            and_(Task.timestamp >= today_start, Task.timestamp <= today_end),
+            and_(Task.timestamp < today_start, Task.status == "pending")
+        )
     ).all()
 
     if not task_list:
