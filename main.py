@@ -108,11 +108,12 @@ async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("📭 No tasks for today.")
         return
 
-    text = "\n".join([f"{i+1}. {t.description} - {t.status} ({t.duration}) - {t.created_by}" for i, t in enumerate(task_list)])
+    text = "\n".join([f"{i+1}. {t.description} - {t.status} - {t.created_by}" for i, t in enumerate(task_list)])
     await update.message.reply_text(f"🗂️ Today's Tasks:\n{text}")
 
 
 async def mark_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logging.info(update)
     chat_id = str(update.effective_chat.id)
     username = update.effective_user.username 
     first_name = update.effective_user.first_name
@@ -127,6 +128,8 @@ async def mark_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
             raise IndexError("invalid task list")
 
         task = task_list[task_id]
+
+        logging.info(f"============{task.created_by} | {user}")
 
         if task.created_by != user:
             await update.message.reply_text(f"⛔ You can only mark your own tasks as done. This one was created by {task.created_by}.")
