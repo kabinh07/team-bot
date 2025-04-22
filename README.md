@@ -15,7 +15,8 @@ A Telegram group bot that lets users manage tasks with natural language, schedul
 - 🤖 **NEW**: GPT-powered smart task creation with `/gptask <prompt>`
 - 🌟 **NEW**: Daily motivation from ChatGPT with `/motivate`
 - 📊 **NEW**: Group productivity analysis via `/report`
-- 💾 SQLite database persistence
+- 📝 **NEW**: Activate daily motivation at 10 AM with `/active_daily_motivation`
+- 💾 SQLite or PostgreSQL database persistence (via `DATABASE_URL`)
 - 🐳 Fully containerized with Docker
 
 ---
@@ -36,6 +37,7 @@ Update the `docker-compose.yml` environment section:
 environment:
   - TELEGRAM_TOKEN=your_telegram_token
   - OPENAI_API_KEY=your_openai_key
+  - DATABASE_URL=sqlite:///tasks.db  # Or PostgreSQL URL (e.g., postgres://user:password@host:port/dbname)
 ```
 
 Or export them locally:
@@ -43,6 +45,7 @@ Or export them locally:
 ```bash
 export TELEGRAM_TOKEN=your_telegram_token
 export OPENAI_API_KEY=your_openai_key
+export DATABASE_URL=sqlite:///tasks.db
 ```
 
 ### 3. Build & Run with Docker
@@ -65,6 +68,7 @@ The bot will start and wait for messages in your Telegram group.
 /gptask Plan a small team-building exercise
 /motivate
 /report
+/active_daily_motivation
 ```
 
 Or simply type:
