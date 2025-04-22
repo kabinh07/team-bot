@@ -16,6 +16,7 @@ import os
 import openai
 import subprocess
 import asyncio
+import functools
 
 # --- Configuration ---
 TOKEN = os.getenv("TELEGRAM_TOKEN", "YOUR_TELEGRAM_BOT_TOKEN")
@@ -106,13 +107,13 @@ async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
             and_(Task.timestamp >= today_start, Task.timestamp <= today_end),
             and_(Task.timestamp < today_start, Task.status == "pending")
         )
-    ).all()
+    ).order_by(Task.id).all()
 
     if not task_list:
         await update.message.reply_text("📭 No tasks for today.")
         return
 
-    text = "\n".join([f"{i+1}. {t.description} - {t.status} - {t.created_by}" for i, t in enumerate(task_list)])
+    text = "\n".join([f"{t.id}. {t.description} - {t.status} - {t.duration} - {t.created_by}" for t in task_list])
     await update.message.reply_text(f"🗂️ Today's Tasks:\n{text}")
 
 
@@ -125,15 +126,14 @@ async def mark_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
     full_name = f"{first_name} {last_name}".strip()
     user = username or full_name
     try:
-        task_id = int(context.args[0]) - 1
+        task_id = int(context.args[0])
         task_list = session.query(Task).filter_by(chat_id=chat_id).all()
 
-        if task_id < 0 or task_id >=len(task_list):
-            raise IndexError("invalid task list")
+        # if task_id < 0 or task_id >=len(task_list):
+        #     raise IndexError("invalid task list")
 
-        task = task_list[task_id]
-
-        logging.info(f"============{task.created_by} | {user}")
+        task = session.query(Task).filter_by(id=task_id).first()
+        logging.info(f"task  = {task}")
 
         if task.created_by != user:
             await update.message.reply_text(f"⛔ You can only mark your own tasks as done. This one was created by {task.created_by}.")
@@ -195,32 +195,40 @@ async def gpt_motivate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     response = ask_gpt("Give a motivational quote for someone managing tasks.")
     await update.message.reply_text(f"💬 GPT Motivation:\n{response}")
 
+import asyncio
+
 async def send_daily_motivation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global daily_motivation_activation
     if daily_motivation_activation:
-        await update.message.reply_text(f"💬 Daily Motivation already activated")
-    else:
-        # Calculate the next 10:00 AM
-        now = datetime.now()
-        next_10_am = datetime.combine(now.date(), time(10, 0))  # Set time to 10:00 AM
+        await update.message.reply_text("💬 Daily Motivation already activated")
+        return
 
-        # If the current time is past 10:00 AM, schedule for the next day
-        if now >= next_10_am:
-            next_10_am += timedelta(days=1)
+    chat_id = update.effective_chat.id
+    loop = asyncio.get_running_loop()
 
-        # Schedule the job
-        async def send_motivation():
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text=ask_gpt("Give a motivational quote for someone managing tasks.")
+    def send_motivation():
+        try:
+            motivation = ask_gpt("Give a motivational quote for someone managing tasks.")
+            asyncio.run_coroutine_threadsafe(
+                context.bot.send_message(chat_id=chat_id, text=f"💬 Daily Motivation:\n{motivation}"),
+                loop
             )
+        except Exception as e:
+            logging.error(f"Failed to send motivation: {e}")
 
-        scheduler.add_job(
-            lambda: asyncio.run(send_motivation()),  # Ensure the coroutine is awaited
-            trigger='date', run_date=next_10_am
-        )
-        daily_motivation_activation = True
-        await update.message.reply_text(f"📝 Daily Motivation scheduled for {next_10_am.strftime('%Y-%m-%d %H:%M')}")
+    scheduler.add_job(
+        send_motivation,
+        trigger='cron',
+        hour=10,
+        minute=0,
+        timezone=BDT,
+        misfire_grace_time=300
+    )
+
+    daily_motivation_activation = True
+    await update.message.reply_text("📝 Daily Motivation scheduled at 10:00 AM every day.")
+
+
 
 async def gpt_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
