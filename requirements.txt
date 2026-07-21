@@ -5,3 +5,10 @@ dateparser==1.2.0
 openai==0.28
 psycopg2-binary
 alembic
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+passlib==1.7.4
+bcrypt==4.0.1
+python-jose[cryptography]==3.3.0
+python-multipart==0.0.9
+pydantic==2.9.2

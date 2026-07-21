@@ -1,0 +1,770 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kanbann</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  body { margin: 0; background: #faf8f4; }
+  * { box-sizing: border-box; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: #ddd8cc; border-radius: 8px; }
+  @keyframes pulseDot { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+  select:focus, input:focus, textarea:focus { outline: 2px solid #0f6e5c33; }
+  a { color: #0f6e5c; }
+  a:hover { color: #0b5646; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+<script type="text/babel-source" id="app-source">
+const { useState, useEffect } = React;
+
+const PROJECT_COLOR_CHOICES = ['#0f6e5c', '#1d4ed8', '#b45309', '#a21caf', '#b91c1c', '#4d7c0f'];
+const STATUS_META = [
+  { key: 'todo', label: 'To Do', dot: '#64748b' },
+  { key: 'inprogress', label: 'In Progress', dot: '#1d4ed8' },
+  { key: 'review', label: 'Review', dot: '#b45309' },
+  { key: 'done', label: 'Done', dot: '#0f6e5c' },
+];
+const PRIORITY_STYLE = {
+  low: { bg: '#eef0f2', fg: '#4b5563', label: 'Low' },
+  medium: { bg: '#fdf1e1', fg: '#b45309', label: 'Medium' },
+  high: { bg: '#fde8e8', fg: '#b91c1c', label: 'High' },
+};
+
+// parses a plain "prop:value;prop2:value2" CSS string into a React style object
+function sx(str) {
+  const obj = {};
+  str.split(';').forEach(rule => {
+    const idx = rule.indexOf(':');
+    if (idx < 0) return;
+    const prop = rule.slice(0, idx).trim().replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+    const val = rule.slice(idx + 1).trim();
+    if (prop) obj[prop] = val;
+  });
+  return obj;
+}
+
+const formatDate = (ts) => ts ? new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—';
+const toDateInput = (ts) => ts ? new Date(ts).toISOString().slice(0, 10) : '';
+
+function tabStyle(active) {
+  return { padding: '7px 14px', borderRadius: '8px', border: 'none', fontFamily: "'IBM Plex Sans',sans-serif", fontSize: '13px', fontWeight: 600, cursor: 'pointer', background: active ? '#1b1b18' : 'transparent', color: active ? '#ffffff' : '#6b6b63', transition: 'all .15s ease' };
+}
+function projectTabStyle(active) {
+  return { padding: '8px 16px', borderRadius: '999px', border: active ? '1.5px solid #1b1b18' : '1.5px solid #e7e4dc', background: active ? '#1b1b18' : '#ffffff', color: active ? '#ffffff' : '#3f3d38', fontSize: '13.5px', fontWeight: 600, cursor: 'pointer', fontFamily: "'IBM Plex Sans',sans-serif", display: 'flex', alignItems: 'center', gap: '7px' };
+}
+function dotStyle(color, size) {
+  const s = size || 8;
+  return { width: s + 'px', height: s + 'px', borderRadius: '50%', background: color, flexShrink: 0, display: 'inline-block' };
+}
+function avatarStyle(color) {
+  return { width: '24px', height: '24px', borderRadius: '50%', background: color, color: '#fff', fontSize: '10.5px', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontFamily: "'IBM Plex Sans',sans-serif" };
+}
+
+// ---- API client ----
+const TOKEN_KEY = 'kanbann_token';
+const getToken = () => localStorage.getItem(TOKEN_KEY);
+const setToken = (t) => t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY);
+
+async function apiCall(method, path, body) {
+  const headers = { 'Content-Type': 'application/json' };
+  const token = getToken();
+  if (token) headers['Authorization'] = 'Bearer ' + token;
+  const res = await fetch(path, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined });
+  if (res.status === 401) {
+    setToken(null);
+    window.location.reload();
+    throw new Error('Session expired');
+  }
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || ('Request failed: ' + res.status));
+  }
+  if (res.status === 204) return null;
+  return res.json();
+}
+const API = {
+  get: (path) => apiCall('GET', path),
+  post: (path, body) => apiCall('POST', path, body),
+  patch: (path, body) => apiCall('PATCH', path, body),
+  del: (path) => apiCall('DELETE', path),
+};
+
+function LoginScreen({ onLogin }) {
+  const [mode, setMode] = useState('login'); // 'login' | 'signup'
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  function switchMode(next) {
+    setMode(next);
+    setError('');
+  }
+
+  async function submit(e) {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+    try {
+      const path = mode === 'login' ? '/api/auth/login' : '/api/auth/signup';
+      const body = mode === 'login' ? { username, password } : { username, password, name };
+      const res = await API.post(path, body);
+      setToken(res.token);
+      await onLogin(res.user);
+    } catch (err) {
+      setError(err.message || (mode === 'login' ? 'Login failed' : 'Sign up failed'));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div style={sx("min-height:100vh;display:flex;align-items:center;justify-content:center;font-family:'IBM Plex Sans',sans-serif;background:#faf8f4;")}>
+      <form onSubmit={submit} style={sx("background:#fff;border-radius:16px;padding:32px 28px;width:340px;max-width:92vw;box-shadow:0 1px 2px rgba(20,20,15,0.04);border:1px solid #e7e4dc;")}>
+        <div style={sx("display:flex;align-items:center;gap:10px;margin-bottom:24px;")}>
+          <div style={sx("width:34px;height:34px;border-radius:9px;background:#0f6e5c;display:flex;align-items:center;justify-content:center;color:#fff;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:16px;")}>K</div>
+          <span style={sx("font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:20px;letter-spacing:-0.01em;")}>Kanbann</span>
+        </div>
+        {mode === 'signup' && (
+          <React.Fragment>
+            <label style={sx("font-size:12px;color:#6b6b63;font-weight:600;display:block;margin-bottom:5px;")}>Full name</label>
+            <input autoFocus value={name} onChange={(e) => setName(e.target.value)} style={sx("width:100%;font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;padding:9px 11px;border-radius:8px;border:1px solid #e7e4dc;margin-bottom:14px;")} />
+          </React.Fragment>
+        )}
+        <label style={sx("font-size:12px;color:#6b6b63;font-weight:600;display:block;margin-bottom:5px;")}>Username</label>
+        <input autoFocus={mode === 'login'} value={username} onChange={(e) => setUsername(e.target.value)} style={sx("width:100%;font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;padding:9px 11px;border-radius:8px;border:1px solid #e7e4dc;margin-bottom:14px;")} />
+        <label style={sx("font-size:12px;color:#6b6b63;font-weight:600;display:block;margin-bottom:5px;")}>Password</label>
+        <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} style={sx("width:100%;font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;padding:9px 11px;border-radius:8px;border:1px solid #e7e4dc;margin-bottom:18px;")} />
+        {error && <div style={sx("font-size:12.5px;color:#b91c1c;margin-bottom:14px;")}>{error}</div>}
+        <button type="submit" disabled={loading} style={{ width: '100%', background: '#0f6e5c', color: '#fff', border: 'none', borderRadius: '9px', padding: '10px', fontSize: '13.5px', fontWeight: 600, fontFamily: "'IBM Plex Sans',sans-serif", cursor: loading ? 'default' : 'pointer', opacity: loading ? 0.7 : 1 }}>
+          {loading ? (mode === 'login' ? 'Signing in…' : 'Creating account…') : (mode === 'login' ? 'Sign in' : 'Sign up')}
+        </button>
+        <div style={sx("text-align:center;margin-top:16px;font-size:12.5px;color:#8a877e;")}>
+          {mode === 'login' ? (
+            <React.Fragment>New here? <a href="#" onClick={(e) => { e.preventDefault(); switchMode('signup'); }}>Create an account</a></React.Fragment>
+          ) : (
+            <React.Fragment>Already have an account? <a href="#" onClick={(e) => { e.preventDefault(); switchMode('login'); }}>Sign in</a></React.Fragment>
+          )}
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function TaskCard({ t, now, opts, projectMap, userMap, onDragStart, onOpen }) {
+  const running = t.status === 'todo' || t.status === 'inprogress';
+  const u = userMap[t.assigneeId] || { name: 'Unassigned', initials: '?', color: '#a8a49a' };
+  const pr = PRIORITY_STYLE[t.priority] || PRIORITY_STYLE.medium;
+  const overdue = !!t.dueDate && t.dueDate < now && t.status !== 'done';
+  const proj = projectMap[t.projectId] || {};
+  const cardStyle = { background: '#ffffff', border: '1px solid #e7e4dc', borderRadius: '10px', padding: '13px 14px', marginBottom: '10px', cursor: opts.editable ? 'pointer' : 'grab', boxShadow: '0 1px 2px rgba(20,20,15,0.04)' };
+  const timerDotStyle = { ...dotStyle(running ? '#0f6e5c' : '#c9c6bc', 6), animation: running ? 'pulseDot 1.6s ease-in-out infinite' : 'none' };
+  return (
+    <div draggable="true" onDragStart={() => onDragStart(t.id)} onClick={opts.editable ? () => onOpen(t) : undefined} style={cardStyle}>
+      <div style={sx("display:flex;align-items:center;justify-content:space-between;margin-bottom:9px;gap:6px;")}>
+        <span style={{ background: pr.bg, color: pr.fg, fontSize: '11px', fontWeight: 700, padding: '3px 8px', borderRadius: '999px', textTransform: 'uppercase', letterSpacing: '0.03em' }}>{pr.label}</span>
+        {opts.withProjectTag && (
+          <span style={{ fontSize: '10.5px', fontWeight: 600, color: proj.color, background: (proj.color || '#000') + '1a', padding: '2px 7px', borderRadius: '6px' }}>{proj.name}</span>
+        )}
+        <span style={{ fontSize: '11px', color: overdue ? '#b91c1c' : '#a8a49a', fontWeight: overdue ? 700 : 400 }}>Due {formatDate(t.dueDate)}</span>
+      </div>
+      <div style={sx("font-size:14px;font-weight:600;color:#1b1b18;margin-bottom:4px;line-height:1.3;")}>{t.title}</div>
+      <div style={sx("font-size:12.5px;color:#83807a;line-height:1.4;margin-bottom:12px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;")}>{t.description}</div>
+      <div style={sx("display:flex;align-items:center;justify-content:space-between;")}>
+        <div style={sx("display:flex;align-items:center;gap:6px;")}>
+          <span style={avatarStyle(u.color)}>{u.initials}</span>
+          <span style={sx("font-size:12px;color:#6b6b63;")}>{u.name}</span>
+        </div>
+        <div style={sx("display:flex;align-items:center;gap:5px;")}>
+          <span style={timerDotStyle}></span>
+          <span style={sx("font-size:12px;font-weight:600;color:#4b4a44;font-variant-numeric:tabular-nums;")}>{t.elapsedLabel}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Column({ col, now, opts, projectMap, userMap, onDragStart, onOpen, onDrop }) {
+  const tasks = col.tasks;
+  return (
+    <div onDragOver={(e) => e.preventDefault()} onDrop={() => onDrop(col.key)} style={sx("flex:1;min-width:270px;max-width:340px;display:flex;flex-direction:column;background:#f2f0ea;border-radius:12px;padding:12px;min-height:0;")}>
+      <div style={sx("display:flex;align-items:center;gap:8px;padding:4px 6px 12px;flex-shrink:0;")}>
+        <span style={dotStyle(col.dot, 8)}></span>
+        <span style={sx("font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:13.5px;color:#3f3d38;")}>{col.label}</span>
+        <span style={sx("font-size:12px;color:#a8a49a;background:#e7e4dc;border-radius:999px;padding:1px 8px;margin-left:auto;")}>{tasks.length}</span>
+      </div>
+      <div style={sx("flex:1;overflow-y:auto;min-height:60px;")}>
+        {tasks.map(t => (
+          <TaskCard key={t.id} t={t} now={now} opts={opts} projectMap={projectMap} userMap={userMap} onDragStart={onDragStart} onOpen={onOpen} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const EMPTY_DASHBOARD = { summaryTiles: [], leaderboard: [], projectStats: [] };
+const EMPTY_TASK_FORM = { id: null, projectId: null, title: '', description: '', assigneeId: null, priority: 'medium', dueDate: '', status: 'todo' };
+
+function App() {
+  const [booting, setBooting] = useState(true);
+  const [me, setMe] = useState(null);
+
+  const [currentProjectId, setCurrentProjectId] = useState(null);
+  const [projects, setProjects] = useState([]);
+  const [users, setUsers] = useState([]);
+  const [tasks, setTasks] = useState([]);
+  const [dashboardData, setDashboardData] = useState(EMPTY_DASHBOARD);
+  const [draggedTaskId, setDraggedTaskId] = useState(null);
+
+  const [showAddProjectModal, setShowAddProjectModal] = useState(false);
+  const [projectForm, setProjectForm] = useState({ name: '', color: PROJECT_COLOR_CHOICES[0] });
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [notifEnabled, setNotifEnabled] = useState(true);
+  const [weeklySummary, setWeeklySummary] = useState(false);
+  const [linkCode, setLinkCode] = useState(null);
+  const [linkCodeError, setLinkCodeError] = useState('');
+
+  const [adminView, setAdminView] = useState('dashboard');
+  const [dashboardPanel, setDashboardPanel] = useState('leaderboard');
+  const [selectedUserId, setSelectedUserId] = useState(null);
+  const [selectedUserDetail, setSelectedUserDetail] = useState(null);
+  const [adminProjectFilter, setAdminProjectFilter] = useState('all');
+
+  const [showTaskModal, setShowTaskModal] = useState(false);
+  const [taskModalMode, setTaskModalMode] = useState('add');
+  const [taskForm, setTaskForm] = useState(EMPTY_TASK_FORM);
+  const [formError, setFormError] = useState('');
+
+  async function refreshBoard() {
+    const [ts, dash] = await Promise.all([API.get('/api/tasks'), API.get('/api/dashboard')]);
+    setTasks(ts);
+    setDashboardData(dash);
+  }
+
+  async function refreshAll() {
+    const [ps, us] = await Promise.all([API.get('/api/projects'), API.get('/api/users')]);
+    setProjects(ps);
+    setUsers(us);
+    setCurrentProjectId(prev => (prev && ps.some(p => p.id === prev)) ? prev : (ps[0] ? ps[0].id : null));
+    await refreshBoard();
+  }
+
+  useEffect(() => {
+    if (!getToken()) { setBooting(false); return; }
+    API.get('/api/auth/me')
+      .then(async (u) => { setMe(u); await refreshAll(); })
+      .catch(() => setToken(null))
+      .finally(() => setBooting(false));
+  }, []);
+
+  useEffect(() => {
+    if (!me) return;
+    const id = setInterval(() => { refreshBoard().catch(() => {}); }, 5000);
+    return () => clearInterval(id);
+  }, [me]);
+
+  useEffect(() => {
+    if (!selectedUserId) { setSelectedUserDetail(null); return; }
+    API.get('/api/users/' + selectedUserId + '/detail').then(setSelectedUserDetail).catch(() => setSelectedUserId(null));
+  }, [selectedUserId]);
+
+  async function handleLogin(user) {
+    setMe(user);
+    await refreshAll();
+  }
+
+  function handleLogout() {
+    setToken(null);
+    setMe(null);
+    setProjects([]); setUsers([]); setTasks([]); setDashboardData(EMPTY_DASHBOARD);
+    setShowProfileMenu(false);
+  }
+
+  if (booting) {
+    return <div style={sx("min-height:100vh;background:#faf8f4;")}></div>;
+  }
+  if (!me) {
+    return <LoginScreen onLogin={handleLogin} />;
+  }
+
+  const now = Date.now();
+  const role = me.role === 'admin' ? 'admin' : 'engineer';
+  const projectMap = Object.fromEntries(projects.map(p => [p.id, p]));
+  const userMap = Object.fromEntries(users.map(u => [u.id, u]));
+
+  function buildColumns(taskList) {
+    return STATUS_META.map(sm => ({
+      key: sm.key, label: sm.label, dot: sm.dot,
+      tasks: taskList.filter(t => t.status === sm.key),
+    }));
+  }
+
+  async function handleDrop(newStatus) {
+    const id = draggedTaskId;
+    setDraggedTaskId(null);
+    if (!id) return;
+    const task = tasks.find(t => t.id === id);
+    if (!task || task.status === newStatus) return;
+    try {
+      const updated = await API.patch('/api/tasks/' + id, { status: newStatus });
+      setTasks(ts => ts.map(t => t.id === id ? updated : t));
+      API.get('/api/dashboard').then(setDashboardData).catch(() => {});
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
+  function openAddTaskModal(projectId, assigneeId) {
+    setFormError('');
+    setTaskModalMode('add');
+    setTaskForm({ ...EMPTY_TASK_FORM, projectId, assigneeId });
+    setShowTaskModal(true);
+  }
+
+  function openEditTaskModal(t) {
+    setFormError('');
+    setTaskModalMode('edit');
+    setTaskForm({ id: t.id, projectId: t.projectId, title: t.title, description: t.description, assigneeId: t.assigneeId, priority: t.priority, dueDate: toDateInput(t.dueDate), status: t.status });
+    setShowTaskModal(true);
+  }
+
+  async function submitTaskForm(e) {
+    e.preventDefault();
+    if (!taskForm.title.trim()) return;
+    const dueTs = taskForm.dueDate ? new Date(taskForm.dueDate + 'T00:00:00').getTime() : undefined;
+    setFormError('');
+    try {
+      if (taskModalMode === 'add') {
+        const created = await API.post('/api/tasks', {
+          projectId: taskForm.projectId, title: taskForm.title.trim(), description: taskForm.description.trim(),
+          assigneeId: taskForm.assigneeId, priority: taskForm.priority, dueDate: dueTs,
+        });
+        setTasks(ts => [...ts, created]);
+      } else {
+        const updated = await API.patch('/api/tasks/' + taskForm.id, {
+          projectId: taskForm.projectId, title: taskForm.title.trim(), description: taskForm.description.trim(),
+          assigneeId: taskForm.assigneeId, priority: taskForm.priority, dueDate: dueTs, status: taskForm.status,
+        });
+        setTasks(ts => ts.map(t => t.id === updated.id ? updated : t));
+      }
+      setShowTaskModal(false);
+      API.get('/api/dashboard').then(setDashboardData).catch(() => {});
+    } catch (err) {
+      setFormError(err.message);
+    }
+  }
+
+  async function deleteTaskAction() {
+    const id = taskForm.id;
+    try {
+      await API.del('/api/tasks/' + id);
+      setTasks(ts => ts.filter(t => t.id !== id));
+      setShowTaskModal(false);
+      API.get('/api/dashboard').then(setDashboardData).catch(() => {});
+    } catch (err) {
+      setFormError(err.message);
+    }
+  }
+
+  async function submitProjectForm(e) {
+    e.preventDefault();
+    if (!projectForm.name.trim()) return;
+    setFormError('');
+    try {
+      const created = await API.post('/api/projects', { name: projectForm.name.trim(), color: projectForm.color });
+      setProjects(ps => [...ps, created]);
+      setShowAddProjectModal(false);
+    } catch (err) {
+      setFormError(err.message);
+    }
+  }
+
+  async function generateLinkCode() {
+    setLinkCodeError('');
+    try {
+      const res = await API.post('/api/users/link-code', undefined);
+      setLinkCode(res.code);
+    } catch (err) {
+      setLinkCodeError(err.message);
+    }
+  }
+
+  // ---- derived render data ----
+  const projectTasks = tasks.filter(t => t.projectId === currentProjectId);
+  const columns = buildColumns(projectTasks);
+
+  const adminTasks = adminProjectFilter === 'all' ? tasks : tasks.filter(t => t.projectId === adminProjectFilter);
+  const adminColumns = buildColumns(adminTasks);
+  const adminProjectTabs = [{ id: 'all', name: 'All projects', color: '#3f3d38' }, ...projects];
+
+  const { summaryTiles, leaderboard, projectStats } = dashboardData;
+
+  const profileIdentity = { name: me.name, initials: me.initials, color: me.color };
+  const taskFormTitleEmpty = !taskForm.title.trim();
+  const projectNameEmpty = !projectForm.name.trim();
+  const isEditMode = taskModalMode === 'edit';
+
+  return (
+    <div style={sx("min-height:100vh;display:flex;flex-direction:column;font-family:'IBM Plex Sans',sans-serif;color:#1b1b18;background:#faf8f4;")}>
+
+      <div style={sx("height:66px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 28px;border-bottom:1px solid #e7e4dc;background:#ffffff;")}>
+        <div style={sx("display:flex;align-items:center;gap:10px;")}>
+          <div style={sx("width:30px;height:30px;border-radius:8px;background:#0f6e5c;display:flex;align-items:center;justify-content:center;color:#fff;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:15px;")}>K</div>
+          <span style={sx("font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:19px;letter-spacing:-0.01em;")}>Kanbann</span>
+        </div>
+        <div style={sx("display:flex;align-items:center;gap:16px;")}>
+          <div style={sx("position:relative;")}>
+            <div onClick={() => setShowProfileMenu(v => !v)} style={{ cursor: 'pointer' }}>
+              <span style={avatarStyle(profileIdentity.color)}>{profileIdentity.initials}</span>
+            </div>
+            {showProfileMenu && (
+              <div style={sx("position:absolute;top:38px;right:0;background:#fff;border:1px solid #e7e4dc;border-radius:12px;box-shadow:0 8px 24px rgba(20,18,14,0.12);width:200px;padding:8px;z-index:60;")}>
+                <div style={sx("padding:8px 10px;font-size:13px;font-weight:600;color:#1b1b18;border-bottom:1px solid #f1efe9;margin-bottom:6px;")}>{profileIdentity.name}</div>
+                <button onClick={() => { setLinkCode(null); setLinkCodeError(''); setShowSettingsModal(true); setShowProfileMenu(false); }} style={sx("width:100%;text-align:left;background:transparent;border:none;padding:8px 10px;border-radius:8px;font-size:13px;color:#3f3d38;font-family:'IBM Plex Sans',sans-serif;cursor:pointer;")}>Settings</button>
+                <button onClick={handleLogout} style={sx("width:100%;text-align:left;background:transparent;border:none;padding:8px 10px;border-radius:8px;font-size:13px;color:#b91c1c;font-family:'IBM Plex Sans',sans-serif;cursor:pointer;")}>Log out</button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {role === 'engineer' && (
+        <div style={sx("flex:1;display:flex;flex-direction:column;min-height:0;")}>
+          <div style={sx("display:flex;align-items:center;justify-content:space-between;padding:18px 28px 14px;flex-shrink:0;")}>
+            <div style={sx("display:flex;gap:8px;flex-wrap:wrap;")}>
+              {projects.map(p => (
+                <button key={p.id} onClick={() => setCurrentProjectId(p.id)} style={projectTabStyle(p.id === currentProjectId)}>
+                  <span style={dotStyle(p.color, 7)}></span>{p.name}
+                </button>
+              ))}
+            </div>
+            <button disabled={!currentProjectId} onClick={() => openAddTaskModal(currentProjectId, me.id)} style={sx("background:#0f6e5c;color:#fff;border:none;border-radius:9px;padding:9px 16px;font-size:13.5px;font-weight:600;font-family:'IBM Plex Sans',sans-serif;cursor:pointer;")}>+ New Task</button>
+          </div>
+
+          <div style={sx("display:flex;align-items:center;gap:14px;padding:0 28px 16px;overflow-x:auto;flex-shrink:0;")}>
+            <span style={sx("font-size:11.5px;color:#8a877e;text-transform:uppercase;letter-spacing:0.04em;flex-shrink:0;")}>Leaderboard</span>
+            {leaderboard.map(lu => (
+              <div key={lu.id} style={sx("display:flex;align-items:center;gap:6px;background:#fff;border:1px solid #e7e4dc;border-radius:999px;padding:4px 12px 4px 4px;flex-shrink:0;")}>
+                <span style={avatarStyle(lu.color)}>{lu.initials}</span>
+                <span style={sx("font-size:12px;font-weight:600;color:#3f3d38;")}>{lu.name}</span>
+                <span style={sx("font-size:12px;font-weight:700;color:#0f6e5c;font-variant-numeric:tabular-nums;")}>{lu.hoursLabel}</span>
+              </div>
+            ))}
+          </div>
+
+          <div style={sx("flex:1;display:flex;gap:16px;padding:0 28px 24px;overflow-x:auto;min-height:0;")}>
+            {columns.map(col => (
+              <Column key={col.key} col={col} now={now} opts={{ withProjectTag: false, editable: true }} projectMap={projectMap} userMap={userMap}
+                onDragStart={(id) => setDraggedTaskId(id)} onOpen={openEditTaskModal} onDrop={handleDrop} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {role === 'admin' && (
+        <div style={sx("flex:1;padding:24px 28px 40px;overflow-y:auto;")}>
+          <div style={sx("display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;")}>
+            <div style={sx("display:flex;background:#f2f0ea;border-radius:10px;padding:3px;gap:2px;")}>
+              <button onClick={() => setAdminView('dashboard')} style={tabStyle(adminView === 'dashboard')}>Dashboard</button>
+              <button onClick={() => setAdminView('tasks')} style={tabStyle(adminView === 'tasks')}>All Tasks</button>
+            </div>
+            {adminView === 'dashboard' && (
+              <button onClick={() => { setFormError(''); setProjectForm({ name: '', color: PROJECT_COLOR_CHOICES[0] }); setShowAddProjectModal(true); }} style={sx("background:#0f6e5c;color:#fff;border:none;border-radius:9px;padding:9px 16px;font-size:13.5px;font-weight:600;font-family:'IBM Plex Sans',sans-serif;cursor:pointer;")}>+ New Project</button>
+            )}
+            {adminView === 'tasks' && projects.length > 0 && (
+              <button onClick={() => openAddTaskModal(adminProjectFilter === 'all' ? projects[0].id : adminProjectFilter, users[0] ? users[0].id : me.id)} style={sx("background:#0f6e5c;color:#fff;border:none;border-radius:9px;padding:9px 16px;font-size:13.5px;font-weight:600;font-family:'IBM Plex Sans',sans-serif;cursor:pointer;")}>+ New Task</button>
+            )}
+          </div>
+
+          {adminView === 'tasks' && (
+            <React.Fragment>
+              <div style={sx("display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;")}>
+                {adminProjectTabs.map(p => (
+                  <button key={p.id} onClick={() => setAdminProjectFilter(p.id)} style={projectTabStyle(p.id === adminProjectFilter)}>
+                    <span style={dotStyle(p.color, 7)}></span>{p.name}
+                  </button>
+                ))}
+              </div>
+              <div style={sx("display:flex;gap:16px;overflow-x:auto;padding-bottom:8px;")}>
+                {adminColumns.map(col => (
+                  <Column key={col.key} col={col} now={now} opts={{ withProjectTag: adminProjectFilter === 'all', editable: true }} projectMap={projectMap} userMap={userMap}
+                    onDragStart={(id) => setDraggedTaskId(id)} onOpen={openEditTaskModal} onDrop={handleDrop} />
+                ))}
+              </div>
+            </React.Fragment>
+          )}
+
+          {adminView === 'dashboard' && (
+            <React.Fragment>
+              <div style={sx("display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:22px;")}>
+                {summaryTiles.map(tile => (
+                  <div key={tile.label} style={sx("background:#fff;border:1px solid #e7e4dc;border-radius:12px;padding:18px 20px;")}>
+                    <div style={sx("font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:26px;color:#1b1b18;")}>{tile.value}</div>
+                    <div style={sx("font-size:11.5px;color:#8a877e;text-transform:uppercase;letter-spacing:0.05em;margin-top:4px;")}>{tile.label}</div>
+                  </div>
+                ))}
+              </div>
+
+              <div style={sx("display:flex;background:#f2f0ea;border-radius:10px;padding:3px;gap:2px;width:fit-content;margin-bottom:16px;")}>
+                <button onClick={() => setDashboardPanel('leaderboard')} style={tabStyle(dashboardPanel === 'leaderboard')}>Leaderboard</button>
+                <button onClick={() => setDashboardPanel('projects')} style={tabStyle(dashboardPanel === 'projects')}>Project stats</button>
+              </div>
+
+              {dashboardPanel === 'leaderboard' && (
+                <div style={sx("background:#fff;border:1px solid #e7e4dc;border-radius:14px;padding:20px 22px;")}>
+                  <div style={sx("font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:15px;margin-bottom:2px;")}>Leaderboard</div>
+                  <div style={sx("font-size:12px;color:#8a877e;margin-bottom:16px;")}>Total hours logged, all projects · click an engineer for details</div>
+                  {leaderboard.map(lbu => (
+                    <div key={lbu.id} onClick={() => setSelectedUserId(lbu.id)} style={sx("display:flex;align-items:center;gap:14px;padding:12px 8px;border-bottom:1px solid #f1efe9;cursor:pointer;border-radius:8px;")}>
+                      <span style={sx("width:16px;font-size:12px;color:#a8a49a;font-weight:600;")}>{lbu.rank}</span>
+                      <span style={avatarStyle(lbu.color)}>{lbu.initials}</span>
+                      <div style={sx("flex:1;min-width:0;max-width:420px;")}>
+                        <div style={sx("font-size:13.5px;font-weight:600;color:#1b1b18;margin-bottom:6px;")}>{lbu.name}</div>
+                        <div style={sx("height:6px;background:#f1efe9;border-radius:3px;overflow:hidden;")}>
+                          <div style={{ height: '100%', width: lbu.widthPct + '%', background: '#0f6e5c', borderRadius: '3px' }}></div>
+                        </div>
+                      </div>
+                      <span style={sx("font-size:14px;font-weight:700;color:#1b1b18;font-variant-numeric:tabular-nums;margin-left:auto;")}>{lbu.hoursLabel}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {dashboardPanel === 'projects' && (
+                <div style={sx("background:#fff;border:1px solid #e7e4dc;border-radius:14px;padding:20px 22px;")}>
+                  <div style={sx("font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:15px;margin-bottom:2px;")}>Project stats</div>
+                  <div style={sx("font-size:12px;color:#8a877e;margin-bottom:16px;")}>Engagement &amp; completion by project · click an engineer for details</div>
+                  <div style={sx("display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;")}>
+                    {projectStats.map(p => (
+                      <div key={p.id} style={sx("border:1px solid #f1efe9;border-radius:12px;padding:16px;")}>
+                        <div style={sx("display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;")}>
+                          <div style={sx("display:flex;align-items:center;gap:8px;")}>
+                            <span style={dotStyle(p.color, 9)}></span>
+                            <span style={sx("font-size:13.5px;font-weight:600;")}>{p.name}</span>
+                          </div>
+                          <span style={sx("font-size:12px;color:#8a877e;")}>{p.engagedUsers} engineers · {p.totalTasks} tasks</span>
+                        </div>
+                        <div style={sx("display:flex;height:8px;border-radius:4px;overflow:hidden;margin-bottom:8px;")}>
+                          {p.byStatus.map(s => (
+                            <div key={s.key} style={{ width: s.pct + '%', background: s.dot, height: '100%' }}></div>
+                          ))}
+                        </div>
+                        <div style={sx("display:flex;justify-content:space-between;font-size:11.5px;color:#8a877e;margin-bottom:10px;")}>
+                          <span>Avg completion: {p.avgCompletionLabel}</span>
+                          <span>{p.totalHoursLabel} total</span>
+                        </div>
+                        {p.contributors.map(c => (
+                          <div key={c.id} onClick={() => setSelectedUserId(c.id)} style={sx("display:flex;align-items:center;gap:10px;padding:6px 4px;cursor:pointer;border-radius:6px;")}>
+                            <span style={avatarStyle(c.color)}>{c.initials}</span>
+                            <span style={sx("font-size:12px;color:#4b4a44;width:88px;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;")}>{c.name}</span>
+                            <div style={sx("flex:1;height:5px;background:#f1efe9;border-radius:3px;overflow:hidden;")}>
+                              <div style={{ height: '100%', width: c.widthPct + '%', background: p.color, borderRadius: '3px' }}></div>
+                            </div>
+                            <span style={sx("font-size:12px;font-weight:700;color:#1b1b18;width:36px;text-align:right;font-variant-numeric:tabular-nums;")}>{c.hoursLabel}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </React.Fragment>
+          )}
+        </div>
+      )}
+
+      {showTaskModal && (
+        <div style={sx("position:fixed;inset:0;background:rgba(20,18,14,0.45);display:flex;align-items:center;justify-content:center;z-index:50;")}>
+          <form onSubmit={submitTaskForm} style={sx("background:#fff;border-radius:16px;padding:26px 26px 22px;width:440px;max-width:92vw;max-height:88vh;overflow-y:auto;")}>
+            <div style={sx("font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:17px;margin-bottom:16px;")}>{isEditMode ? 'Edit task' : 'New task'}</div>
+
+            <label style={sx("font-size:12px;color:#6b6b63;font-weight:600;display:block;margin-bottom:5px;")}>Title</label>
+            <input value={taskForm.title} onChange={(e) => setTaskForm(f => ({ ...f, title: e.target.value }))} placeholder="e.g. Fix login redirect bug" style={sx("width:100%;font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;padding:9px 11px;border-radius:8px;border:1px solid #e7e4dc;margin-bottom:14px;")} />
+
+            <label style={sx("font-size:12px;color:#6b6b63;font-weight:600;display:block;margin-bottom:5px;")}>Description</label>
+            <textarea value={taskForm.description} onChange={(e) => setTaskForm(f => ({ ...f, description: e.target.value }))} placeholder="Short details for the team" rows="3" style={sx("width:100%;font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;padding:9px 11px;border-radius:8px;border:1px solid #e7e4dc;margin-bottom:14px;resize:vertical;")}></textarea>
+
+            <div style={sx("display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;")}>
+              <div>
+                <label style={sx("font-size:12px;color:#6b6b63;font-weight:600;display:block;margin-bottom:5px;")}>Project</label>
+                <select value={taskForm.projectId || ''} onChange={(e) => setTaskForm(f => ({ ...f, projectId: Number(e.target.value) }))} style={sx("width:100%;font-family:'IBM Plex Sans',sans-serif;font-size:13px;padding:8px 10px;border-radius:8px;border:1px solid #e7e4dc;")}>
+                  {projects.map(pr => <option key={pr.id} value={pr.id}>{pr.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={sx("font-size:12px;color:#6b6b63;font-weight:600;display:block;margin-bottom:5px;")}>Assignee</label>
+                <select value={taskForm.assigneeId || ''} onChange={(e) => setTaskForm(f => ({ ...f, assigneeId: Number(e.target.value) }))} style={sx("width:100%;font-family:'IBM Plex Sans',sans-serif;font-size:13px;padding:8px 10px;border-radius:8px;border:1px solid #e7e4dc;")}>
+                  {users.map(au => <option key={au.id} value={au.id}>{au.name}</option>)}
+                </select>
+              </div>
+            </div>
+
+            <div style={sx("display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;")}>
+              <div>
+                <label style={sx("font-size:12px;color:#6b6b63;font-weight:600;display:block;margin-bottom:5px;")}>Priority</label>
+                <select value={taskForm.priority} onChange={(e) => setTaskForm(f => ({ ...f, priority: e.target.value }))} style={sx("width:100%;font-family:'IBM Plex Sans',sans-serif;font-size:13px;padding:8px 10px;border-radius:8px;border:1px solid #e7e4dc;")}>
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                </select>
+              </div>
+              {isEditMode && (
+                <div>
+                  <label style={sx("font-size:12px;color:#6b6b63;font-weight:600;display:block;margin-bottom:5px;")}>Status</label>
+                  <select value={taskForm.status} onChange={(e) => setTaskForm(f => ({ ...f, status: e.target.value }))} style={sx("width:100%;font-family:'IBM Plex Sans',sans-serif;font-size:13px;padding:8px 10px;border-radius:8px;border:1px solid #e7e4dc;")}>
+                    {STATUS_META.map(so => <option key={so.key} value={so.key}>{so.label}</option>)}
+                  </select>
+                </div>
+              )}
+            </div>
+
+            <label style={sx("font-size:12px;color:#6b6b63;font-weight:600;display:block;margin-bottom:5px;")}>Due date</label>
+            <input type="date" value={taskForm.dueDate} onChange={(e) => setTaskForm(f => ({ ...f, dueDate: e.target.value }))} style={sx("width:100%;font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;padding:8px 10px;border-radius:8px;border:1px solid #e7e4dc;margin-bottom:14px;")} />
+
+            {formError && <div style={sx("font-size:12.5px;color:#b91c1c;margin-bottom:10px;")}>{formError}</div>}
+
+            <div style={sx("display:flex;justify-content:space-between;align-items:center;gap:10px;")}>
+              {isEditMode && (
+                <button type="button" onClick={deleteTaskAction} style={sx("background:transparent;border:none;color:#b91c1c;padding:9px 4px;font-size:13px;font-weight:600;font-family:'IBM Plex Sans',sans-serif;cursor:pointer;")}>Delete task</button>
+              )}
+              <div style={sx("display:flex;gap:10px;margin-left:auto;")}>
+                <button type="button" onClick={() => setShowTaskModal(false)} style={sx("background:transparent;border:1px solid #e7e4dc;color:#4b4a44;padding:9px 16px;border-radius:9px;font-size:13.5px;font-weight:600;font-family:'IBM Plex Sans',sans-serif;cursor:pointer;")}>Cancel</button>
+                <button type="submit" disabled={taskFormTitleEmpty} style={{ background: taskFormTitleEmpty ? '#c9c6bc' : '#0f6e5c', color: '#fff', border: 'none', borderRadius: '9px', padding: '9px 18px', fontSize: '13.5px', fontWeight: 600, fontFamily: "'IBM Plex Sans',sans-serif", cursor: taskFormTitleEmpty ? 'not-allowed' : 'pointer' }}>Save</button>
+              </div>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {showSettingsModal && (
+        <div style={sx("position:fixed;inset:0;background:rgba(20,18,14,0.45);display:flex;align-items:center;justify-content:center;z-index:50;")}>
+          <div style={sx("background:#fff;border-radius:16px;padding:26px 26px 22px;width:380px;max-width:92vw;")}>
+            <div style={sx("font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:17px;margin-bottom:18px;")}>Settings</div>
+
+            <div style={sx("display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid #f1efe9;")}>
+              <div>
+                <div style={sx("font-size:13px;font-weight:600;color:#1b1b18;")}>Email notifications</div>
+                <div style={sx("font-size:11.5px;color:#8a877e;")}>Task and mention alerts</div>
+              </div>
+              <div onClick={() => setNotifEnabled(v => !v)} style={{ width: '38px', height: '22px', borderRadius: '999px', background: notifEnabled ? '#0f6e5c' : '#e7e4dc', position: 'relative', cursor: 'pointer', transition: 'background .15s ease' }}>
+                <div style={{ width: '18px', height: '18px', borderRadius: '50%', background: '#fff', position: 'absolute', top: '2px', left: notifEnabled ? '18px' : '2px', transition: 'left .15s ease', boxShadow: '0 1px 2px rgba(0,0,0,0.2)' }}></div>
+              </div>
+            </div>
+
+            <div style={sx("display:flex;align-items:center;justify-content:space-between;padding:14px 0;border-bottom:1px solid #f1efe9;")}>
+              <div>
+                <div style={sx("font-size:13px;font-weight:600;color:#1b1b18;")}>Weekly summary email</div>
+                <div style={sx("font-size:11.5px;color:#8a877e;")}>Hours logged across your projects</div>
+              </div>
+              <div onClick={() => setWeeklySummary(v => !v)} style={{ width: '38px', height: '22px', borderRadius: '999px', background: weeklySummary ? '#0f6e5c' : '#e7e4dc', position: 'relative', cursor: 'pointer', transition: 'background .15s ease' }}>
+                <div style={{ width: '18px', height: '18px', borderRadius: '50%', background: '#fff', position: 'absolute', top: '2px', left: weeklySummary ? '18px' : '2px', transition: 'left .15s ease', boxShadow: '0 1px 2px rgba(0,0,0,0.2)' }}></div>
+              </div>
+            </div>
+
+            <div style={sx("padding:14px 0 6px;")}>
+              <div style={sx("font-size:13px;font-weight:600;color:#1b1b18;margin-bottom:2px;")}>Telegram bot</div>
+              <div style={sx("font-size:11.5px;color:#8a877e;margin-bottom:10px;")}>
+                {me.telegramLinked ? 'Linked. Use /mytasks, /addtask and more in the bot.' : 'Generate a code, then send /link <code> to the bot.'}
+              </div>
+              {linkCode && (
+                <div style={sx("font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:20px;letter-spacing:0.08em;background:#f2f0ea;border-radius:8px;padding:10px;text-align:center;margin-bottom:10px;")}>{linkCode}</div>
+              )}
+              {linkCodeError && <div style={sx("font-size:12px;color:#b91c1c;margin-bottom:10px;")}>{linkCodeError}</div>}
+              <button type="button" onClick={generateLinkCode} style={sx("background:transparent;border:1px solid #e7e4dc;color:#3f3d38;padding:8px 14px;border-radius:8px;font-size:12.5px;font-weight:600;font-family:'IBM Plex Sans',sans-serif;cursor:pointer;")}>Generate link code</button>
+            </div>
+
+            <div style={sx("display:flex;justify-content:flex-end;margin-top:16px;")}>
+              <button type="button" onClick={() => setShowSettingsModal(false)} style={sx("background:#0f6e5c;color:#fff;border:none;border-radius:9px;padding:9px 18px;font-size:13.5px;font-weight:600;font-family:'IBM Plex Sans',sans-serif;cursor:pointer;")}>Done</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {selectedUserDetail && (
+        <div style={sx("position:fixed;inset:0;background:rgba(20,18,14,0.45);display:flex;align-items:center;justify-content:center;z-index:50;")}>
+          <div style={sx("background:#fff;border-radius:16px;padding:26px 26px 22px;width:460px;max-width:92vw;max-height:85vh;overflow-y:auto;")}>
+            <div style={sx("display:flex;align-items:center;gap:14px;margin-bottom:18px;")}>
+              <span style={{ ...avatarStyle(selectedUserDetail.color), width: '44px', height: '44px', fontSize: '16px' }}>{selectedUserDetail.initials}</span>
+              <div>
+                <div style={sx("font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:17px;")}>{selectedUserDetail.name}</div>
+                <div style={sx("font-size:12px;color:#8a877e;")}>{selectedUserDetail.totalHoursLabel} total · {selectedUserDetail.doneTasks}/{selectedUserDetail.totalTasks} tasks done</div>
+              </div>
+            </div>
+            <div style={sx("font-size:11.5px;color:#8a877e;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:10px;")}>By project</div>
+            {selectedUserDetail.perProject.map(pp => (
+              <div key={pp.id} style={sx("border:1px solid #f1efe9;border-radius:10px;padding:12px 14px;margin-bottom:10px;")}>
+                <div style={sx("display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;")}>
+                  <div style={sx("display:flex;align-items:center;gap:8px;")}>
+                    <span style={dotStyle(pp.color, 9)}></span>
+                    <span style={sx("font-size:13.5px;font-weight:600;")}>{pp.name}</span>
+                  </div>
+                  <span style={sx("font-size:13px;font-weight:700;color:#1b1b18;")}>{pp.hoursLabel}</span>
+                </div>
+                <div style={sx("display:flex;gap:12px;flex-wrap:wrap;")}>
+                  {pp.byStatus.map(bs => (
+                    <div key={bs.label} style={sx("display:flex;align-items:center;gap:5px;font-size:11.5px;color:#6b6b63;")}>
+                      <span style={dotStyle(bs.dot, 7)}></span>{bs.label}: {bs.count}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+            <div style={sx("display:flex;justify-content:flex-end;margin-top:6px;")}>
+              <button type="button" onClick={() => setSelectedUserId(null)} style={sx("background:transparent;border:1px solid #e7e4dc;color:#4b4a44;padding:9px 16px;border-radius:9px;font-size:13.5px;font-weight:600;font-family:'IBM Plex Sans',sans-serif;cursor:pointer;")}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showAddProjectModal && (
+        <div style={sx("position:fixed;inset:0;background:rgba(20,18,14,0.45);display:flex;align-items:center;justify-content:center;z-index:50;")}>
+          <form onSubmit={submitProjectForm} style={sx("background:#fff;border-radius:16px;padding:26px 26px 22px;width:380px;max-width:92vw;")}>
+            <div style={sx("font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:17px;margin-bottom:16px;")}>New project</div>
+
+            <label style={sx("font-size:12px;color:#6b6b63;font-weight:600;display:block;margin-bottom:5px;")}>Name</label>
+            <input value={projectForm.name} onChange={(e) => setProjectForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Growth Experiments" style={sx("width:100%;font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;padding:9px 11px;border-radius:8px;border:1px solid #e7e4dc;margin-bottom:16px;")} />
+
+            <label style={sx("font-size:12px;color:#6b6b63;font-weight:600;display:block;margin-bottom:8px;")}>Color</label>
+            <div style={sx("display:flex;gap:10px;margin-bottom:18px;")}>
+              {PROJECT_COLOR_CHOICES.map(c => (
+                <div key={c} onClick={() => setProjectForm(f => ({ ...f, color: c }))} style={{ width: '26px', height: '26px', borderRadius: '50%', background: c, border: c === projectForm.color ? '2.5px solid #1b1b18' : '2.5px solid transparent', cursor: 'pointer', boxShadow: c === projectForm.color ? '0 0 0 2px #fff inset' : 'none' }}></div>
+              ))}
+            </div>
+
+            {formError && <div style={sx("font-size:12.5px;color:#b91c1c;margin-bottom:14px;")}>{formError}</div>}
+
+            <div style={sx("display:flex;justify-content:flex-end;gap:10px;")}>
+              <button type="button" onClick={() => setShowAddProjectModal(false)} style={sx("background:transparent;border:1px solid #e7e4dc;color:#4b4a44;padding:9px 16px;border-radius:9px;font-size:13.5px;font-weight:600;font-family:'IBM Plex Sans',sans-serif;cursor:pointer;")}>Cancel</button>
+              <button type="submit" disabled={projectNameEmpty} style={{ background: projectNameEmpty ? '#c9c6bc' : '#0f6e5c', color: '#fff', border: 'none', borderRadius: '9px', padding: '9px 18px', fontSize: '13.5px', fontWeight: 600, fontFamily: "'IBM Plex Sans',sans-serif", cursor: projectNameEmpty ? 'not-allowed' : 'pointer' }}>Create project</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+<script>
+  var src = document.getElementById('app-source').textContent;
+  var out = Babel.transform(src, { presets: [['react', { runtime: 'classic' }]], filename: 'app.jsx' }).code;
+  var s = document.createElement('script');
+  s.text = out;
+  document.body.appendChild(s);
+</script>
+</body>
+</html>

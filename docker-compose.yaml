@@ -1,14 +1,62 @@
 services:
-  taskbot:
+  db:
+    image: postgres:16-alpine
+    container_name: kanbann_db
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-kanbann}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-kanbann}
+      - POSTGRES_DB=${POSTGRES_DB:-kanbann}
+    volumes:
+      - kanbann_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-kanbann}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: always
+
+  web:
     build: .
-    container_name: team_bot
+    container_name: kanbann_web
+    command: >
+      sh -c "python migrate.py && python seed.py &&
+             uvicorn api:app --host 0.0.0.0 --port 8000"
+    environment:
+      - DATABASE_URL=${WEB_DATABASE_URL:-postgresql://kanbann:kanbann@db:5432/kanbann}
+      - JWT_SECRET=${JWT_SECRET:-dev-secret-change-me}
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
+      - SEED_DEMO=${SEED_DEMO:-false}
+    ports:
+      - "${WEB_PORT:-8000}:8000"
+    volumes:
+      - ./:/app
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    restart: always
+
+  bot:
+    build: .
+    container_name: kanbann_bot
+    command: python main.py
     environment:
       - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
-      - DATABASE_URL=${DATABASE_URL}
+      - DATABASE_URL=${BOT_DATABASE_URL:-postgresql://kanbann:kanbann@db:5432/kanbann}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - JWT_SECRET=${JWT_SECRET:-dev-secret-change-me}
     volumes:
-      # - ./tasks.db:/app/tasks.db
-      - ./main.py:/app/main.py
-      - ./alembic:/app/alembic
-      - ./alembic.ini:/app/alembic.ini
+      - ./:/app
+    depends_on:
+      web:
+        condition: service_healthy
     restart: always
+
+volumes:
+  kanbann_pgdata:
