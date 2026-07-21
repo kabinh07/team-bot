@@ -4,12 +4,14 @@ elapsed time accrues while a task is in todo/inprogress, is banked into
 accumulated_ms when it stops (review/done), and resumes when a task is
 dragged back into todo/inprogress.
 """
+import csv
+import io
 from collections import defaultdict
-
-from sqlalchemy import func
+from datetime import datetime, timezone
 
 from models import (
-    Session, User, Project, Task, STATUSES, STATUS_DONE, STATUS_META, now_ms,
+    Session, User, Project, Task, ROLE_ENGINEER, STATUSES, STATUS_DONE,
+    STATUS_META, now_ms,
 )
 
 RUNNING_STATUSES = {"todo", "inprogress"}
@@ -188,3 +190,32 @@ def user_detail(session, user_id: int) -> dict | None:
         "doneTasks": sum(1 for t in utasks if t.status == STATUS_DONE),
         "perProject": per_project,
     }
+
+
+def month_bounds_ms(year: int, month: int) -> tuple[int, int]:
+    start = datetime(year, month, 1, tzinfo=timezone.utc)
+    end = datetime(year + 1, 1, 1, tzinfo=timezone.utc) if month == 12 else datetime(year, month + 1, 1, tzinfo=timezone.utc)
+    return int(start.timestamp() * 1000), int(end.timestamp() * 1000)
+
+
+def engagement_report_csv(session, year: int, month: int) -> str:
+    """Per-engineer, per-project total hours for tasks created in the given
+    month. Projects as columns, engineers as rows, hours as values.
+    """
+    start_ms, end_ms = month_bounds_ms(year, month)
+    now = now_ms()
+
+    projects = session.query(Project).order_by(Project.name).all()
+    engineers = session.query(User).filter(User.role == ROLE_ENGINEER).order_by(User.name).all()
+    tasks = session.query(Task).filter(Task.created_at_ms >= start_ms, Task.created_at_ms < end_ms).all()
+
+    hours_by_pair = defaultdict(float)
+    for t in tasks:
+        hours_by_pair[(t.assignee_id, t.project_id)] += elapsed_ms(t, now) / 3600000
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["Engineer"] + [p.name for p in projects])
+    for e in engineers:
+        writer.writerow([e.name] + [round(hours_by_pair.get((e.id, p.id), 0.0), 2) for p in projects])
+    return buf.getvalue()

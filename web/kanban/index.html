@@ -168,10 +168,11 @@ function TaskCard({ t, now, opts, projectMap, userMap, onDragStart, onOpen }) {
   const pr = PRIORITY_STYLE[t.priority] || PRIORITY_STYLE.medium;
   const overdue = !!t.dueDate && t.dueDate < now && t.status !== 'done';
   const proj = projectMap[t.projectId] || {};
-  const cardStyle = { background: '#ffffff', border: '1px solid #e7e4dc', borderRadius: '10px', padding: '13px 14px', marginBottom: '10px', cursor: opts.editable ? 'pointer' : 'grab', boxShadow: '0 1px 2px rgba(20,20,15,0.04)' };
+  const canModify = opts.isAdmin || t.assigneeId === opts.meId;
+  const cardStyle = { background: '#ffffff', border: '1px solid #e7e4dc', borderRadius: '10px', padding: '13px 14px', marginBottom: '10px', cursor: canModify ? (opts.editable ? 'pointer' : 'grab') : 'default', opacity: canModify ? 1 : 0.7, boxShadow: '0 1px 2px rgba(20,20,15,0.04)' };
   const timerDotStyle = { ...dotStyle(running ? '#0f6e5c' : '#c9c6bc', 6), animation: running ? 'pulseDot 1.6s ease-in-out infinite' : 'none' };
   return (
-    <div draggable="true" onDragStart={() => onDragStart(t.id)} onClick={opts.editable ? () => onOpen(t) : undefined} style={cardStyle}>
+    <div draggable={canModify ? "true" : "false"} onDragStart={canModify ? () => onDragStart(t.id) : undefined} onClick={canModify && opts.editable ? () => onOpen(t) : undefined} style={cardStyle}>
       <div style={sx("display:flex;align-items:center;justify-content:space-between;margin-bottom:9px;gap:6px;")}>
         <span style={{ background: pr.bg, color: pr.fg, fontSize: '11px', fontWeight: 700, padding: '3px 8px', borderRadius: '999px', textTransform: 'uppercase', letterSpacing: '0.03em' }}>{pr.label}</span>
         {opts.withProjectTag && (
@@ -238,6 +239,7 @@ function App() {
 
   const [adminView, setAdminView] = useState('dashboard');
   const [dashboardPanel, setDashboardPanel] = useState('leaderboard');
+  const [reportMonth, setReportMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const [selectedUserId, setSelectedUserId] = useState(null);
   const [selectedUserDetail, setSelectedUserDetail] = useState(null);
   const [adminProjectFilter, setAdminProjectFilter] = useState('all');
@@ -401,6 +403,33 @@ function App() {
     }
   }
 
+  async function downloadReport(month) {
+    const token = getToken();
+    let res;
+    try {
+      res = await fetch('/api/dashboard/report.csv?month=' + encodeURIComponent(month), {
+        headers: token ? { 'Authorization': 'Bearer ' + token } : {},
+      });
+    } catch (err) {
+      alert('Failed to download report: ' + err.message);
+      return;
+    }
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      alert(err.detail || ('Failed to download report: ' + res.status));
+      return;
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'kanbann-engagement-' + month + '.csv';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
   // ---- derived render data ----
   const projectTasks = tasks.filter(t => t.projectId === currentProjectId);
   const columns = buildColumns(projectTasks);
@@ -466,7 +495,7 @@ function App() {
 
           <div style={sx("flex:1;display:flex;gap:16px;padding:0 28px 24px;overflow-x:auto;min-height:0;")}>
             {columns.map(col => (
-              <Column key={col.key} col={col} now={now} opts={{ withProjectTag: false, editable: true }} projectMap={projectMap} userMap={userMap}
+              <Column key={col.key} col={col} now={now} opts={{ withProjectTag: false, editable: true, isAdmin: false, meId: me.id }} projectMap={projectMap} userMap={userMap}
                 onDragStart={(id) => setDraggedTaskId(id)} onOpen={openEditTaskModal} onDrop={handleDrop} />
             ))}
           </div>
@@ -499,7 +528,7 @@ function App() {
               </div>
               <div style={sx("display:flex;gap:16px;overflow-x:auto;padding-bottom:8px;")}>
                 {adminColumns.map(col => (
-                  <Column key={col.key} col={col} now={now} opts={{ withProjectTag: adminProjectFilter === 'all', editable: true }} projectMap={projectMap} userMap={userMap}
+                  <Column key={col.key} col={col} now={now} opts={{ withProjectTag: adminProjectFilter === 'all', editable: true, isAdmin: true, meId: me.id }} projectMap={projectMap} userMap={userMap}
                     onDragStart={(id) => setDraggedTaskId(id)} onOpen={openEditTaskModal} onDrop={handleDrop} />
                 ))}
               </div>
@@ -517,9 +546,16 @@ function App() {
                 ))}
               </div>
 
-              <div style={sx("display:flex;background:#f2f0ea;border-radius:10px;padding:3px;gap:2px;width:fit-content;margin-bottom:16px;")}>
-                <button onClick={() => setDashboardPanel('leaderboard')} style={tabStyle(dashboardPanel === 'leaderboard')}>Leaderboard</button>
-                <button onClick={() => setDashboardPanel('projects')} style={tabStyle(dashboardPanel === 'projects')}>Project stats</button>
+              <div style={sx("display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:16px;")}>
+                <div style={sx("display:flex;background:#f2f0ea;border-radius:10px;padding:3px;gap:2px;width:fit-content;")}>
+                  <button onClick={() => setDashboardPanel('leaderboard')} style={tabStyle(dashboardPanel === 'leaderboard')}>Leaderboard</button>
+                  <button onClick={() => setDashboardPanel('projects')} style={tabStyle(dashboardPanel === 'projects')}>Project stats</button>
+                </div>
+                <div style={sx("display:flex;align-items:center;gap:8px;")}>
+                  <span style={sx("font-size:11.5px;color:#8a877e;")}>Engagement report</span>
+                  <input type="month" value={reportMonth} onChange={(e) => setReportMonth(e.target.value)} style={sx("font-family:'IBM Plex Sans',sans-serif;font-size:12.5px;padding:6px 8px;border-radius:8px;border:1px solid #e7e4dc;background:#fff;color:#1b1b18;")} />
+                  <button onClick={() => downloadReport(reportMonth)} style={sx("background:transparent;border:1px solid #e7e4dc;color:#3f3d38;padding:7px 12px;border-radius:8px;font-size:12.5px;font-weight:600;font-family:'IBM Plex Sans',sans-serif;cursor:pointer;")}>Download CSV</button>
+                </div>
               </div>
 
               {dashboardPanel === 'leaderboard' && (

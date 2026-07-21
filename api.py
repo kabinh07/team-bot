@@ -1,7 +1,9 @@
 import logging
 import os
+from datetime import datetime, timezone
 
 from fastapi import Depends, FastAPI, HTTPException
+from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 
@@ -171,6 +173,8 @@ def update_task(task_id: int, body: TaskUpdateRequest, user: User = Depends(curr
     t = db.query(Task).get(task_id)
     if not t:
         raise HTTPException(status_code=404, detail="Task not found")
+    if user.role != ROLE_ADMIN and t.assignee_id != user.id:
+        raise HTTPException(status_code=403, detail="You can only modify your own tasks")
 
     if body.title is not None:
         if not body.title.strip():
@@ -203,6 +207,8 @@ def delete_task(task_id: int, user: User = Depends(current_user), db=Depends(get
     t = db.query(Task).get(task_id)
     if not t:
         raise HTTPException(status_code=404, detail="Task not found")
+    if user.role != ROLE_ADMIN and t.assignee_id != user.id:
+        raise HTTPException(status_code=403, detail="You can only modify your own tasks")
     db.delete(t)
     db.commit()
     return {"ok": True}
@@ -217,6 +223,27 @@ def dashboard(user: User = Depends(current_user), db=Depends(get_db)):
         "leaderboard": services.leaderboard(db),
         "projectStats": services.project_stats(db),
     }
+
+
+@app.get("/api/dashboard/report.csv")
+def engagement_report(month: str | None = None, admin: User = Depends(require_admin), db=Depends(get_db)):
+    if month:
+        try:
+            year_s, month_s = month.split("-")
+            year, mon = int(year_s), int(month_s)
+            if not (1 <= mon <= 12):
+                raise ValueError
+        except ValueError:
+            raise HTTPException(status_code=422, detail="month must be in YYYY-MM format")
+    else:
+        today = datetime.now(timezone.utc)
+        year, mon = today.year, today.month
+    csv_text = services.engagement_report_csv(db, year, mon)
+    filename = f"kanbann-engagement-{year:04d}-{mon:02d}.csv"
+    return Response(
+        content=csv_text, media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # ---- portal static files (mounted last so /api/* takes precedence) ----
