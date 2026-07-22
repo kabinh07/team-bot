@@ -65,3 +65,26 @@ def require_admin(user: User = Depends(current_user)) -> User:
     if user.role != ROLE_ADMIN:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
     return user
+
+
+def require_project_creator(user: User = Depends(current_user)) -> User:
+    if user.role != ROLE_ADMIN and not user.can_create_projects:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No permission to create projects")
+    return user
+
+
+NO_DEPARTMENT = -1  # sentinel: matches no real row, used when an engineer has no department yet
+
+
+def scope_department(user: User, requested: int | None) -> int | None:
+    """Returns the effective department id to filter by, or None for 'all'
+    (admin only). Engineers are always forced to their own department and
+    get a 403 if they ask for a different one. An engineer with no
+    department assigned yet gets a sentinel that matches nothing, rather
+    than silently falling through to 'all' (None).
+    """
+    if user.role == ROLE_ADMIN:
+        return requested
+    if requested is not None and requested != user.department_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot access another department")
+    return user.department_id if user.department_id is not None else NO_DEPARTMENT

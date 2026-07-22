@@ -56,6 +56,17 @@ def _initials(name: str) -> str:
     return (parts[0][0] + parts[-1][0]).upper()
 
 
+class Department(Base):
+    __tablename__ = 'departments'
+    id = Column(Integer, primary_key=True)
+    name = Column(String, unique=True, nullable=False)
+    color = Column(String, nullable=False, default='#0f6e5c')
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    def to_public(self):
+        return {"id": self.id, "name": self.name, "color": self.color}
+
+
 class User(Base):
     __tablename__ = 'users'
     id = Column(Integer, primary_key=True)
@@ -66,13 +77,19 @@ class User(Base):
     color = Column(String, nullable=False, default='#0f6e5c')
     role = Column(SAEnum(*ROLES, name='user_role'), nullable=False, default=ROLE_ENGINEER)
     telegram_id = Column(String, unique=True, nullable=True, index=True)
+    department_id = Column(Integer, ForeignKey('departments.id'), nullable=True, index=True)
+    can_create_projects = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    department = relationship('Department')
 
     def to_public(self):
         return {
             "id": self.id, "username": self.username, "name": self.name,
             "initials": self.initials, "color": self.color, "role": self.role,
             "telegramLinked": bool(self.telegram_id),
+            "departmentId": self.department_id,
+            "canCreateProjects": bool(self.can_create_projects),
         }
 
 
@@ -81,11 +98,14 @@ class Project(Base):
     id = Column(Integer, primary_key=True)
     name = Column(String, nullable=False)
     color = Column(String, nullable=False, default='#0f6e5c')
+    department_id = Column(Integer, ForeignKey('departments.id'), nullable=False, index=True)
     created_by = Column(Integer, ForeignKey('users.id'), nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
+    department = relationship('Department')
+
     def to_public(self):
-        return {"id": self.id, "name": self.name, "color": self.color}
+        return {"id": self.id, "name": self.name, "color": self.color, "departmentId": self.department_id}
 
 
 class Task(Base):

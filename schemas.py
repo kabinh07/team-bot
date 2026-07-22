@@ -14,6 +14,7 @@ class SignupRequest(BaseModel):
     username: str
     password: str
     name: str
+    departmentId: int
 
 
 class UserCreateRequest(BaseModel):
@@ -22,15 +23,38 @@ class UserCreateRequest(BaseModel):
     name: str
     role: str = Field(default="engineer")
     color: Optional[str] = None
+    departmentId: Optional[int] = None
+    canCreateProjects: bool = False
 
     def validate_role(self):
         if self.role not in ROLES:
             raise ValueError(f"role must be one of {ROLES}")
 
 
+class UserUpdateRequest(BaseModel):
+    departmentId: Optional[int] = None
+    canCreateProjects: Optional[bool] = None
+    role: Optional[str] = None
+
+    def validate_fields(self):
+        if self.role is not None and self.role not in ROLES:
+            raise ValueError(f"role must be one of {ROLES}")
+
+
+class DepartmentCreateRequest(BaseModel):
+    name: str
+    color: str = "#0f6e5c"
+
+
 class ProjectCreateRequest(BaseModel):
     name: str
     color: str = "#0f6e5c"
+    departmentId: Optional[int] = None
+
+
+class ProjectUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    color: Optional[str] = None
 
 
 class TaskCreateRequest(BaseModel):
