@@ -1,11 +1,35 @@
 # migrate.py
+import glob
 import os
+import shutil
 
 from sqlalchemy import text
 
 from models import engine
 
 FALLBACK_DEPARTMENT = "AI/ML"
+
+
+def reset_alembic_bookkeeping():
+    """alembic/versions is gitignored and regenerated fresh every boot, but
+    it lives on whatever machine is running the container and isn't synced
+    with the DB's alembic_version stamp or with any other machine's copy.
+    A crash mid-migration (e.g. under `restart: always`) leaves a stale
+    revision file behind; the next boot's autogenerate builds on top of it
+    and can replay an already-applied operation against a DB that's since
+    moved on, crashing with things like DuplicateColumn. Since this project
+    never relies on real migration history (each boot autogenerates a fresh
+    diff against current models), just wipe local script files and the DB's
+    stamp every boot so autogenerate always starts from a clean, accurate
+    diff of live schema vs. models -- self-healing regardless of past
+    crashes or which machine ran them.
+    """
+    for f in glob.glob("alembic/versions/*.py"):
+        os.remove(f)
+    shutil.rmtree("alembic/versions/__pycache__", ignore_errors=True)
+    with engine.begin() as conn:
+        if _table_exists(conn, "alembic_version"):
+            conn.execute(text("DELETE FROM alembic_version"))
 
 
 def _table_exists(conn, table):
@@ -82,6 +106,7 @@ def backfill_user_departments():
         )
 
 
+reset_alembic_bookkeeping()
 preflight_department_backfill()
 os.system("alembic revision --autogenerate -m 'autogen'")
 os.system("alembic upgrade head")
