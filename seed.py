@@ -7,8 +7,8 @@ import os
 
 from auth import hash_password
 from models import (
-    DEFAULT_COLORS, Project, ROLE_ADMIN, ROLE_ENGINEER, Session, Task, User,
-    _initials, now_ms,
+    DEFAULT_COLORS, Department, Project, ROLE_ADMIN, ROLE_ENGINEER, Session,
+    Task, User, _initials, now_ms,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -42,12 +42,19 @@ def seed_admin(db):
 def seed_demo(db):
     if db.query(Project).count() > 0:
         return
+    dept = db.query(Department).filter(Department.name == "Demo").first()
+    if not dept:
+        dept = Department(name="Demo", color="#0f6e5c")
+        db.add(dept)
+        db.commit()
+
     users = []
     for i, (username, name) in enumerate(DEMO_USERS):
         u = User(
             username=username, password_hash=hash_password("password123"),
             name=name, initials=_initials(name),
             color=DEFAULT_COLORS[i % len(DEFAULT_COLORS)], role=ROLE_ENGINEER,
+            department_id=dept.id,
         )
         db.add(u)
         users.append(u)
@@ -55,7 +62,7 @@ def seed_demo(db):
 
     projects = []
     for name, color in DEMO_PROJECTS:
-        p = Project(name=name, color=color)
+        p = Project(name=name, color=color, department_id=dept.id)
         db.add(p)
         projects.append(p)
     db.commit()

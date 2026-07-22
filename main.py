@@ -12,10 +12,10 @@ from telegram.ext import (
 )
 
 import services
-from auth import hash_password
+from auth import NO_DEPARTMENT, hash_password
 from models import (
-    BDT, LinkCode, Project, ROLE_ADMIN, ROLE_ENGINEER, STATUSES, Session,
-    Task, User, _initials, now_ms,
+    BDT, Department, LinkCode, Project, ROLE_ADMIN, ROLE_ENGINEER, STATUSES,
+    Session, Task, User, _initials, now_ms,
 )
 
 # --- Configuration ---
@@ -56,6 +56,13 @@ def resolve_user(db, update: Update):
 
 def default_project(db):
     return db.query(Project).order_by(Project.id).first()
+
+
+def dept_scope(user: User):
+    """Department id to filter by for this user, or None for 'all' (admin)."""
+    if user.role == ROLE_ADMIN:
+        return None
+    return user.department_id if user.department_id is not None else NO_DEPARTMENT
 
 
 LINK_HINT = "🔗 Your Telegram isn't linked to a Kanbann account yet.\nGet a code from the portal (Settings) and send /link <code>."
@@ -122,7 +129,11 @@ async def list_projects(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = await require_linked_user(update, db)
         if not user:
             return
-        projects = db.query(Project).order_by(Project.id).all()
+        dept = dept_scope(user)
+        q = db.query(Project)
+        if dept is not None:
+            q = q.filter(Project.department_id == dept)
+        projects = q.order_by(Project.id).all()
         if not projects:
             await update.message.reply_text("📭 No projects yet.")
             return
@@ -149,6 +160,9 @@ async def add_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         project = db.query(Project).get(project_id)
         if not project:
             await update.message.reply_text("❗ Unknown project. See /projects.")
+            return
+        if user.role != ROLE_ADMIN and project.department_id != user.department_id:
+            await update.message.reply_text("⛔ That project belongs to another department.")
             return
         title = " ".join(context.args[1:]).strip()
         now = now_ms()
@@ -224,17 +238,41 @@ async def mark_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # --- Admin commands ---
+async def list_departments(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    db = Session()
+    try:
+        admin = await require_admin_user(update, db)
+        if not admin:
+            return
+        depts = db.query(Department).order_by(Department.id).all()
+        if not depts:
+            await update.message.reply_text("📭 No departments yet. Create one from the portal.")
+            return
+        text = "\n".join([f"{d.id}. {d.name}" for d in depts])
+        await update.message.reply_text(f"🏢 Departments:\n{text}")
+    finally:
+        db.close()
+
+
 async def new_project(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db = Session()
     try:
         admin = await require_admin_user(update, db)
         if not admin:
             return
-        if not context.args:
-            await update.message.reply_text("❗ Usage: /newproject <name>")
+        if len(context.args) < 2:
+            await update.message.reply_text("❗ Usage: /newproject <departmentId> <name>\nSee /departments for ids.")
             return
-        name = " ".join(context.args).strip()
-        project = Project(name=name, color="#0f6e5c", created_by=admin.id)
+        try:
+            department_id = int(context.args[0])
+        except ValueError:
+            await update.message.reply_text("❗ departmentId must be a number. See /departments.")
+            return
+        if not db.query(Department).get(department_id):
+            await update.message.reply_text("❗ Unknown department. See /departments.")
+            return
+        name = " ".join(context.args[1:]).strip()
+        project = Project(name=name, color="#0f6e5c", department_id=department_id, created_by=admin.id)
         db.add(project)
         db.commit()
         await update.message.reply_text(f"✅ Project #{project.id} created: {name}")
@@ -456,6 +494,7 @@ app.add_handler(CommandHandler("addtask", add_task))
 app.add_handler(CommandHandler("mytasks", my_tasks))
 app.add_handler(CommandHandler("move", move_task))
 app.add_handler(CommandHandler("done", mark_done))
+app.add_handler(CommandHandler("departments", list_departments))
 app.add_handler(CommandHandler("newproject", new_project))
 app.add_handler(CommandHandler("users", list_users))
 app.add_handler(CommandHandler("adduser", add_user))

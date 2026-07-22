@@ -104,8 +104,17 @@ function LoginScreen({ onLogin }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
+  const [departments, setDepartments] = useState([]);
+  const [departmentId, setDepartmentId] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    API.get('/api/departments').then(ds => {
+      setDepartments(ds);
+      setDepartmentId(prev => prev || (ds[0] ? String(ds[0].id) : ''));
+    }).catch(() => {});
+  }, []);
 
   function switchMode(next) {
     setMode(next);
@@ -115,10 +124,14 @@ function LoginScreen({ onLogin }) {
   async function submit(e) {
     e.preventDefault();
     setError('');
+    if (mode === 'signup' && !departmentId) {
+      setError('No department available — ask an admin to create one first.');
+      return;
+    }
     setLoading(true);
     try {
       const path = mode === 'login' ? '/api/auth/login' : '/api/auth/signup';
-      const body = mode === 'login' ? { username, password } : { username, password, name };
+      const body = mode === 'login' ? { username, password } : { username, password, name, departmentId: Number(departmentId) };
       const res = await API.post(path, body);
       setToken(res.token);
       await onLogin(res.user);
@@ -140,6 +153,11 @@ function LoginScreen({ onLogin }) {
           <React.Fragment>
             <label style={sx("font-size:12px;color:#6b6b63;font-weight:600;display:block;margin-bottom:5px;")}>Full name</label>
             <input autoFocus value={name} onChange={(e) => setName(e.target.value)} style={sx("width:100%;font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;padding:9px 11px;border-radius:8px;border:1px solid #e7e4dc;margin-bottom:14px;")} />
+            <label style={sx("font-size:12px;color:#6b6b63;font-weight:600;display:block;margin-bottom:5px;")}>Department</label>
+            <select value={departmentId} onChange={(e) => setDepartmentId(e.target.value)} style={sx("width:100%;font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;padding:9px 11px;border-radius:8px;border:1px solid #e7e4dc;margin-bottom:14px;background:#fff;")}>
+              {departments.length === 0 && <option value="">No departments yet</option>}
+              {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+            </select>
           </React.Fragment>
         )}
         <label style={sx("font-size:12px;color:#6b6b63;font-weight:600;display:block;margin-bottom:5px;")}>Username</label>
@@ -216,6 +234,8 @@ function Column({ col, now, opts, projectMap, userMap, onDragStart, onOpen, onDr
 
 const EMPTY_DASHBOARD = { summaryTiles: [], leaderboard: [], projectStats: [] };
 const EMPTY_TASK_FORM = { id: null, projectId: null, title: '', description: '', assigneeId: null, priority: 'medium', dueDate: '', status: 'todo' };
+const EMPTY_PROJECT_FORM = { id: null, name: '', color: PROJECT_COLOR_CHOICES[0], departmentId: null };
+const EMPTY_DEPT_FORM = { name: '', color: PROJECT_COLOR_CHOICES[0] };
 
 function App() {
   const [booting, setBooting] = useState(true);
@@ -225,11 +245,18 @@ function App() {
   const [projects, setProjects] = useState([]);
   const [users, setUsers] = useState([]);
   const [tasks, setTasks] = useState([]);
+  const [departments, setDepartments] = useState([]);
   const [dashboardData, setDashboardData] = useState(EMPTY_DASHBOARD);
   const [draggedTaskId, setDraggedTaskId] = useState(null);
 
+  const [adminDepartmentFilter, setAdminDepartmentFilter] = useState('all');
+
   const [showAddProjectModal, setShowAddProjectModal] = useState(false);
-  const [projectForm, setProjectForm] = useState({ name: '', color: PROJECT_COLOR_CHOICES[0] });
+  const [projectModalMode, setProjectModalMode] = useState('add');
+  const [projectForm, setProjectForm] = useState(EMPTY_PROJECT_FORM);
+  const [showDeptModal, setShowDeptModal] = useState(false);
+  const [deptForm, setDeptForm] = useState(EMPTY_DEPT_FORM);
+  const [deptFormError, setDeptFormError] = useState('');
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [notifEnabled, setNotifEnabled] = useState(true);
@@ -249,16 +276,23 @@ function App() {
   const [taskForm, setTaskForm] = useState(EMPTY_TASK_FORM);
   const [formError, setFormError] = useState('');
 
+  function deptQuery() {
+    return (me && me.role === 'admin' && adminDepartmentFilter !== 'all') ? ('?department=' + adminDepartmentFilter) : '';
+  }
+
   async function refreshBoard() {
-    const [ts, dash] = await Promise.all([API.get('/api/tasks'), API.get('/api/dashboard')]);
+    const q = deptQuery();
+    const [ts, dash] = await Promise.all([API.get('/api/tasks' + q), API.get('/api/dashboard' + q)]);
     setTasks(ts);
     setDashboardData(dash);
   }
 
   async function refreshAll() {
-    const [ps, us] = await Promise.all([API.get('/api/projects'), API.get('/api/users')]);
+    const q = deptQuery();
+    const [ps, us, ds] = await Promise.all([API.get('/api/projects' + q), API.get('/api/users' + q), API.get('/api/departments')]);
     setProjects(ps);
     setUsers(us);
+    setDepartments(ds);
     setCurrentProjectId(prev => (prev && ps.some(p => p.id === prev)) ? prev : (ps[0] ? ps[0].id : null));
     await refreshBoard();
   }
@@ -278,6 +312,11 @@ function App() {
   }, [me]);
 
   useEffect(() => {
+    if (!me || me.role !== 'admin') return;
+    refreshAll().catch(() => {});
+  }, [adminDepartmentFilter]);
+
+  useEffect(() => {
     if (!selectedUserId) { setSelectedUserDetail(null); return; }
     API.get('/api/users/' + selectedUserId + '/detail').then(setSelectedUserDetail).catch(() => setSelectedUserId(null));
   }, [selectedUserId]);
@@ -291,6 +330,7 @@ function App() {
     setToken(null);
     setMe(null);
     setProjects([]); setUsers([]); setTasks([]); setDashboardData(EMPTY_DASHBOARD);
+    setDepartments([]); setAdminDepartmentFilter('all');
     setShowProfileMenu(false);
   }
 
@@ -322,7 +362,7 @@ function App() {
     try {
       const updated = await API.patch('/api/tasks/' + id, { status: newStatus });
       setTasks(ts => ts.map(t => t.id === id ? updated : t));
-      API.get('/api/dashboard').then(setDashboardData).catch(() => {});
+      API.get('/api/dashboard' + deptQuery()).then(setDashboardData).catch(() => {});
     } catch (err) {
       alert(err.message);
     }
@@ -362,7 +402,7 @@ function App() {
         setTasks(ts => ts.map(t => t.id === updated.id ? updated : t));
       }
       setShowTaskModal(false);
-      API.get('/api/dashboard').then(setDashboardData).catch(() => {});
+      API.get('/api/dashboard' + deptQuery()).then(setDashboardData).catch(() => {});
     } catch (err) {
       setFormError(err.message);
     }
@@ -374,10 +414,25 @@ function App() {
       await API.del('/api/tasks/' + id);
       setTasks(ts => ts.filter(t => t.id !== id));
       setShowTaskModal(false);
-      API.get('/api/dashboard').then(setDashboardData).catch(() => {});
+      API.get('/api/dashboard' + deptQuery()).then(setDashboardData).catch(() => {});
     } catch (err) {
       setFormError(err.message);
     }
+  }
+
+  function openAddProjectModal() {
+    setFormError('');
+    setProjectModalMode('add');
+    const defaultDept = adminDepartmentFilter !== 'all' ? adminDepartmentFilter : (departments[0] ? departments[0].id : null);
+    setProjectForm({ ...EMPTY_PROJECT_FORM, departmentId: role === 'admin' ? defaultDept : null });
+    setShowAddProjectModal(true);
+  }
+
+  function openEditProjectModal(p) {
+    setFormError('');
+    setProjectModalMode('edit');
+    setProjectForm({ id: p.id, name: p.name, color: p.color, departmentId: p.departmentId });
+    setShowAddProjectModal(true);
   }
 
   async function submitProjectForm(e) {
@@ -385,11 +440,52 @@ function App() {
     if (!projectForm.name.trim()) return;
     setFormError('');
     try {
-      const created = await API.post('/api/projects', { name: projectForm.name.trim(), color: projectForm.color });
-      setProjects(ps => [...ps, created]);
+      if (projectModalMode === 'edit') {
+        const updated = await API.patch('/api/projects/' + projectForm.id, { name: projectForm.name.trim(), color: projectForm.color });
+        setProjects(ps => ps.map(p => p.id === updated.id ? updated : p));
+      } else {
+        const body = { name: projectForm.name.trim(), color: projectForm.color };
+        if (role === 'admin') body.departmentId = projectForm.departmentId;
+        const created = await API.post('/api/projects', body);
+        setProjects(ps => [...ps, created]);
+      }
       setShowAddProjectModal(false);
     } catch (err) {
       setFormError(err.message);
+    }
+  }
+
+  async function deleteProjectAction(id) {
+    if (!window.confirm('Delete this project and all its tasks? This cannot be undone.')) return;
+    try {
+      await API.del('/api/projects/' + id);
+      setProjects(ps => ps.filter(p => p.id !== id));
+      setTasks(ts => ts.filter(t => t.projectId !== id));
+      API.get('/api/dashboard' + deptQuery()).then(setDashboardData).catch(() => {});
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
+  async function submitDeptForm(e) {
+    e.preventDefault();
+    if (!deptForm.name.trim()) return;
+    setDeptFormError('');
+    try {
+      const created = await API.post('/api/departments', { name: deptForm.name.trim(), color: deptForm.color });
+      setDepartments(ds => [...ds, created]);
+      setDeptForm(EMPTY_DEPT_FORM);
+    } catch (err) {
+      setDeptFormError(err.message);
+    }
+  }
+
+  async function updateUserField(userId, patch) {
+    try {
+      const updated = await API.patch('/api/users/' + userId, patch);
+      setUsers(us => us.map(u => u.id === updated.id ? updated : u));
+    } catch (err) {
+      alert(err.message);
     }
   }
 
@@ -479,7 +575,12 @@ function App() {
                 </button>
               ))}
             </div>
-            <button disabled={!currentProjectId} onClick={() => openAddTaskModal(currentProjectId, me.id)} style={sx("background:#0f6e5c;color:#fff;border:none;border-radius:9px;padding:9px 16px;font-size:13.5px;font-weight:600;font-family:'IBM Plex Sans',sans-serif;cursor:pointer;")}>+ New Task</button>
+            <div style={sx("display:flex;gap:8px;flex-shrink:0;")}>
+              {me.canCreateProjects && (
+                <button onClick={openAddProjectModal} style={sx("background:transparent;border:1px solid #e7e4dc;color:#3f3d38;border-radius:9px;padding:9px 16px;font-size:13.5px;font-weight:600;font-family:'IBM Plex Sans',sans-serif;cursor:pointer;")}>+ New Project</button>
+              )}
+              <button disabled={!currentProjectId} onClick={() => openAddTaskModal(currentProjectId, me.id)} style={sx("background:#0f6e5c;color:#fff;border:none;border-radius:9px;padding:9px 16px;font-size:13.5px;font-weight:600;font-family:'IBM Plex Sans',sans-serif;cursor:pointer;")}>+ New Task</button>
+            </div>
           </div>
 
           <div style={sx("display:flex;align-items:center;gap:14px;padding:0 28px 16px;overflow-x:auto;flex-shrink:0;")}>
@@ -504,17 +605,25 @@ function App() {
 
       {role === 'admin' && (
         <div style={sx("flex:1;padding:24px 28px 40px;overflow-y:auto;")}>
-          <div style={sx("display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;")}>
+          <div style={sx("display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;flex-wrap:wrap;gap:10px;")}>
             <div style={sx("display:flex;background:#f2f0ea;border-radius:10px;padding:3px;gap:2px;")}>
               <button onClick={() => setAdminView('dashboard')} style={tabStyle(adminView === 'dashboard')}>Dashboard</button>
               <button onClick={() => setAdminView('tasks')} style={tabStyle(adminView === 'tasks')}>All Tasks</button>
+              <button onClick={() => setAdminView('users')} style={tabStyle(adminView === 'users')}>Users</button>
             </div>
-            {adminView === 'dashboard' && (
-              <button onClick={() => { setFormError(''); setProjectForm({ name: '', color: PROJECT_COLOR_CHOICES[0] }); setShowAddProjectModal(true); }} style={sx("background:#0f6e5c;color:#fff;border:none;border-radius:9px;padding:9px 16px;font-size:13.5px;font-weight:600;font-family:'IBM Plex Sans',sans-serif;cursor:pointer;")}>+ New Project</button>
-            )}
-            {adminView === 'tasks' && projects.length > 0 && (
-              <button onClick={() => openAddTaskModal(adminProjectFilter === 'all' ? projects[0].id : adminProjectFilter, users[0] ? users[0].id : me.id)} style={sx("background:#0f6e5c;color:#fff;border:none;border-radius:9px;padding:9px 16px;font-size:13.5px;font-weight:600;font-family:'IBM Plex Sans',sans-serif;cursor:pointer;")}>+ New Task</button>
-            )}
+            <div style={sx("display:flex;align-items:center;gap:8px;")}>
+              <select value={adminDepartmentFilter} onChange={(e) => setAdminDepartmentFilter(e.target.value === 'all' ? 'all' : Number(e.target.value))} style={sx("font-family:'IBM Plex Sans',sans-serif;font-size:12.5px;padding:8px 10px;border-radius:8px;border:1px solid #e7e4dc;background:#fff;color:#1b1b18;")}>
+                <option value="all">All departments</option>
+                {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
+              <button onClick={() => { setDeptFormError(''); setDeptForm(EMPTY_DEPT_FORM); setShowDeptModal(true); }} style={sx("background:transparent;border:1px solid #e7e4dc;color:#3f3d38;border-radius:9px;padding:9px 14px;font-size:13px;font-weight:600;font-family:'IBM Plex Sans',sans-serif;cursor:pointer;")}>+ Department</button>
+              {adminView === 'dashboard' && (
+                <button onClick={openAddProjectModal} style={sx("background:#0f6e5c;color:#fff;border:none;border-radius:9px;padding:9px 16px;font-size:13.5px;font-weight:600;font-family:'IBM Plex Sans',sans-serif;cursor:pointer;")}>+ New Project</button>
+              )}
+              {adminView === 'tasks' && projects.length > 0 && (
+                <button onClick={() => openAddTaskModal(adminProjectFilter === 'all' ? projects[0].id : adminProjectFilter, users[0] ? users[0].id : me.id)} style={sx("background:#0f6e5c;color:#fff;border:none;border-radius:9px;padding:9px 16px;font-size:13.5px;font-weight:600;font-family:'IBM Plex Sans',sans-serif;cursor:pointer;")}>+ New Task</button>
+              )}
+            </div>
           </div>
 
           {adminView === 'tasks' && (
@@ -533,6 +642,34 @@ function App() {
                 ))}
               </div>
             </React.Fragment>
+          )}
+
+          {adminView === 'users' && (
+            <div style={sx("background:#fff;border:1px solid #e7e4dc;border-radius:14px;padding:8px 22px;")}>
+              {users.map(u => (
+                <div key={u.id} style={sx("display:flex;align-items:center;gap:14px;padding:14px 8px;border-bottom:1px solid #f1efe9;")}>
+                  <span style={avatarStyle(u.color)}>{u.initials}</span>
+                  <div style={sx("min-width:130px;")}>
+                    <div style={sx("font-size:13.5px;font-weight:600;color:#1b1b18;")}>{u.name}</div>
+                    <div style={sx("font-size:11.5px;color:#8a877e;")}>@{u.username} · {u.role}</div>
+                  </div>
+                  {u.role === 'admin' ? (
+                    <span style={sx("font-size:12px;color:#a8a49a;margin-left:auto;")}>Global access</span>
+                  ) : (
+                    <div style={sx("display:flex;align-items:center;gap:14px;margin-left:auto;")}>
+                      <select value={u.departmentId || ''} onChange={(e) => updateUserField(u.id, { departmentId: Number(e.target.value) })} style={sx("font-family:'IBM Plex Sans',sans-serif;font-size:12.5px;padding:6px 8px;border-radius:8px;border:1px solid #e7e4dc;background:#fff;color:#1b1b18;")}>
+                        <option value="" disabled>No department</option>
+                        {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                      </select>
+                      <label style={sx("display:flex;align-items:center;gap:6px;font-size:12px;color:#4b4a44;cursor:pointer;white-space:nowrap;")}>
+                        <input type="checkbox" checked={u.canCreateProjects} onChange={(e) => updateUserField(u.id, { canCreateProjects: e.target.checked })} />
+                        Can create projects
+                      </label>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
           )}
 
           {adminView === 'dashboard' && (
@@ -590,7 +727,11 @@ function App() {
                             <span style={dotStyle(p.color, 9)}></span>
                             <span style={sx("font-size:13.5px;font-weight:600;")}>{p.name}</span>
                           </div>
-                          <span style={sx("font-size:12px;color:#8a877e;")}>{p.engagedUsers} engineers · {p.totalTasks} tasks</span>
+                          <div style={sx("display:flex;align-items:center;gap:10px;")}>
+                            <span style={sx("font-size:12px;color:#8a877e;")}>{p.engagedUsers} engineers · {p.totalTasks} tasks</span>
+                            <button type="button" onClick={() => openEditProjectModal(projectMap[p.id])} style={sx("background:transparent;border:none;color:#8a877e;cursor:pointer;font-size:12.5px;padding:2px;")} title="Edit project">✏️</button>
+                            <button type="button" onClick={() => deleteProjectAction(p.id)} style={sx("background:transparent;border:none;color:#b91c1c;cursor:pointer;font-size:12.5px;padding:2px;")} title="Delete project">🗑</button>
+                          </div>
                         </div>
                         <div style={sx("display:flex;height:8px;border-radius:4px;overflow:hidden;margin-bottom:8px;")}>
                           {p.byStatus.map(s => (
@@ -767,10 +908,19 @@ function App() {
       {showAddProjectModal && (
         <div style={sx("position:fixed;inset:0;background:rgba(20,18,14,0.45);display:flex;align-items:center;justify-content:center;z-index:50;")}>
           <form onSubmit={submitProjectForm} style={sx("background:#fff;border-radius:16px;padding:26px 26px 22px;width:380px;max-width:92vw;")}>
-            <div style={sx("font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:17px;margin-bottom:16px;")}>New project</div>
+            <div style={sx("font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:17px;margin-bottom:16px;")}>{projectModalMode === 'edit' ? 'Edit project' : 'New project'}</div>
 
             <label style={sx("font-size:12px;color:#6b6b63;font-weight:600;display:block;margin-bottom:5px;")}>Name</label>
             <input value={projectForm.name} onChange={(e) => setProjectForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Growth Experiments" style={sx("width:100%;font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;padding:9px 11px;border-radius:8px;border:1px solid #e7e4dc;margin-bottom:16px;")} />
+
+            {role === 'admin' && projectModalMode === 'add' && (
+              <React.Fragment>
+                <label style={sx("font-size:12px;color:#6b6b63;font-weight:600;display:block;margin-bottom:5px;")}>Department</label>
+                <select value={projectForm.departmentId || ''} onChange={(e) => setProjectForm(f => ({ ...f, departmentId: Number(e.target.value) }))} style={sx("width:100%;font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;padding:9px 11px;border-radius:8px;border:1px solid #e7e4dc;margin-bottom:16px;background:#fff;")}>
+                  {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </select>
+              </React.Fragment>
+            )}
 
             <label style={sx("font-size:12px;color:#6b6b63;font-weight:600;display:block;margin-bottom:8px;")}>Color</label>
             <div style={sx("display:flex;gap:10px;margin-bottom:18px;")}>
@@ -783,7 +933,38 @@ function App() {
 
             <div style={sx("display:flex;justify-content:flex-end;gap:10px;")}>
               <button type="button" onClick={() => setShowAddProjectModal(false)} style={sx("background:transparent;border:1px solid #e7e4dc;color:#4b4a44;padding:9px 16px;border-radius:9px;font-size:13.5px;font-weight:600;font-family:'IBM Plex Sans',sans-serif;cursor:pointer;")}>Cancel</button>
-              <button type="submit" disabled={projectNameEmpty} style={{ background: projectNameEmpty ? '#c9c6bc' : '#0f6e5c', color: '#fff', border: 'none', borderRadius: '9px', padding: '9px 18px', fontSize: '13.5px', fontWeight: 600, fontFamily: "'IBM Plex Sans',sans-serif", cursor: projectNameEmpty ? 'not-allowed' : 'pointer' }}>Create project</button>
+              <button type="submit" disabled={projectNameEmpty} style={{ background: projectNameEmpty ? '#c9c6bc' : '#0f6e5c', color: '#fff', border: 'none', borderRadius: '9px', padding: '9px 18px', fontSize: '13.5px', fontWeight: 600, fontFamily: "'IBM Plex Sans',sans-serif", cursor: projectNameEmpty ? 'not-allowed' : 'pointer' }}>{projectModalMode === 'edit' ? 'Save' : 'Create project'}</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {showDeptModal && (
+        <div style={sx("position:fixed;inset:0;background:rgba(20,18,14,0.45);display:flex;align-items:center;justify-content:center;z-index:50;")}>
+          <form onSubmit={submitDeptForm} style={sx("background:#fff;border-radius:16px;padding:26px 26px 22px;width:380px;max-width:92vw;")}>
+            <div style={sx("font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:17px;margin-bottom:16px;")}>Departments</div>
+
+            {departments.map(d => (
+              <div key={d.id} style={sx("display:flex;align-items:center;gap:8px;padding:6px 0;")}>
+                <span style={dotStyle(d.color, 8)}></span>
+                <span style={sx("font-size:13px;color:#3f3d38;")}>{d.name}</span>
+              </div>
+            ))}
+
+            <label style={sx("font-size:12px;color:#6b6b63;font-weight:600;display:block;margin:16px 0 5px;")}>New department name</label>
+            <input value={deptForm.name} onChange={(e) => setDeptForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Marketing" style={sx("width:100%;font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;padding:9px 11px;border-radius:8px;border:1px solid #e7e4dc;margin-bottom:16px;")} />
+
+            <div style={sx("display:flex;gap:10px;margin-bottom:18px;")}>
+              {PROJECT_COLOR_CHOICES.map(c => (
+                <div key={c} onClick={() => setDeptForm(f => ({ ...f, color: c }))} style={{ width: '26px', height: '26px', borderRadius: '50%', background: c, border: c === deptForm.color ? '2.5px solid #1b1b18' : '2.5px solid transparent', cursor: 'pointer', boxShadow: c === deptForm.color ? '0 0 0 2px #fff inset' : 'none' }}></div>
+              ))}
+            </div>
+
+            {deptFormError && <div style={sx("font-size:12.5px;color:#b91c1c;margin-bottom:14px;")}>{deptFormError}</div>}
+
+            <div style={sx("display:flex;justify-content:flex-end;gap:10px;")}>
+              <button type="button" onClick={() => setShowDeptModal(false)} style={sx("background:transparent;border:1px solid #e7e4dc;color:#4b4a44;padding:9px 16px;border-radius:9px;font-size:13.5px;font-weight:600;font-family:'IBM Plex Sans',sans-serif;cursor:pointer;")}>Close</button>
+              <button type="submit" disabled={!deptForm.name.trim()} style={{ background: !deptForm.name.trim() ? '#c9c6bc' : '#0f6e5c', color: '#fff', border: 'none', borderRadius: '9px', padding: '9px 18px', fontSize: '13.5px', fontWeight: 600, fontFamily: "'IBM Plex Sans',sans-serif", cursor: !deptForm.name.trim() ? 'not-allowed' : 'pointer' }}>Add department</button>
             </div>
           </form>
         </div>

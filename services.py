@@ -75,9 +75,19 @@ def task_to_public(task: Task, now: int = None) -> dict:
 
 # ---- dashboard aggregation ----
 
-def summary_tiles(session) -> list:
-    tasks = session.query(Task).all()
-    projects = session.query(Project).count()
+def _tasks_query(session, department_id: int = None):
+    q = session.query(Task)
+    if department_id is not None:
+        q = q.join(Project, Task.project_id == Project.id).filter(Project.department_id == department_id)
+    return q
+
+
+def summary_tiles(session, department_id: int = None) -> list:
+    tasks = _tasks_query(session, department_id).all()
+    projects_q = session.query(Project)
+    if department_id is not None:
+        projects_q = projects_q.filter(Project.department_id == department_id)
+    projects = projects_q.count()
     now = now_ms()
     total_hours = sum(elapsed_ms(t, now) for t in tasks) / 3600000
     engineers = len({t.assignee_id for t in tasks})
@@ -89,9 +99,9 @@ def summary_tiles(session) -> list:
     ]
 
 
-def leaderboard(session, project_id: int = None) -> list:
+def leaderboard(session, project_id: int = None, department_id: int = None) -> list:
     now = now_ms()
-    q = session.query(Task)
+    q = _tasks_query(session, department_id)
     if project_id is not None:
         q = q.filter(Task.project_id == project_id)
     tasks = q.all()
@@ -115,9 +125,12 @@ def leaderboard(session, project_id: int = None) -> list:
     return rows
 
 
-def project_stats(session) -> list:
+def project_stats(session, department_id: int = None) -> list:
     now = now_ms()
-    projects = session.query(Project).all()
+    projects_q = session.query(Project)
+    if department_id is not None:
+        projects_q = projects_q.filter(Project.department_id == department_id)
+    projects = projects_q.all()
     stats = []
     for p in projects:
         ptasks = session.query(Task).filter(Task.project_id == p.id).all()
@@ -161,10 +174,12 @@ def project_stats(session) -> list:
     return stats
 
 
-def user_detail(session, user_id: int) -> dict | None:
+def user_detail(session, user_id: int, department_id: int = None) -> dict | None:
     now = now_ms()
     u = session.query(User).get(user_id)
     if not u:
+        return None
+    if department_id is not None and u.department_id != department_id:
         return None
     utasks = session.query(Task).filter(Task.assignee_id == user_id).all()
     total_hours = sum(elapsed_ms(t, now) for t in utasks) / 3600000
@@ -198,15 +213,20 @@ def month_bounds_ms(year: int, month: int) -> tuple[int, int]:
     return int(start.timestamp() * 1000), int(end.timestamp() * 1000)
 
 
-def engagement_report_csv(session, year: int, month: int) -> str:
+def engagement_report_csv(session, year: int, month: int, department_id: int = None) -> str:
     """Per-engineer, per-project total hours for tasks created in the given
     month. Projects as columns, engineers as rows, hours as values.
     """
     start_ms, end_ms = month_bounds_ms(year, month)
     now = now_ms()
 
-    projects = session.query(Project).order_by(Project.name).all()
-    engineers = session.query(User).filter(User.role == ROLE_ENGINEER).order_by(User.name).all()
+    projects_q = session.query(Project)
+    engineers_q = session.query(User).filter(User.role == ROLE_ENGINEER)
+    if department_id is not None:
+        projects_q = projects_q.filter(Project.department_id == department_id)
+        engineers_q = engineers_q.filter(User.department_id == department_id)
+    projects = projects_q.order_by(Project.name).all()
+    engineers = engineers_q.order_by(User.name).all()
     tasks = session.query(Task).filter(Task.created_at_ms >= start_ms, Task.created_at_ms < end_ms).all()
 
     hours_by_pair = defaultdict(float)
