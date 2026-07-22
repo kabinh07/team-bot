@@ -1,15 +1,15 @@
 services:
 #  db:
 #    image: postgres:16-alpine
-#    container_name: kanbann_db
+#    container_name: kanvan_db
 #    environment:
-#      - POSTGRES_USER=${POSTGRES_USER:-kanbann}
-#      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-kanbann}
-#      - POSTGRES_DB=${POSTGRES_DB:-kanbann}
+#      - POSTGRES_USER=${POSTGRES_USER:-kanvan}
+#      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-kanvan}
+#      - POSTGRES_DB=${POSTGRES_DB:-kanvan}
 #    volumes:
-#      - kanbann_pgdata:/var/lib/postgresql/data
+#      - kanvan_pgdata:/var/lib/postgresql/data
 #    healthcheck:
-#      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-kanbann}"]
+#      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-kanvan}"]
 #      interval: 5s
 #      timeout: 5s
 #      retries: 10
@@ -17,12 +17,12 @@ services:
 
   web:
     build: .
-    container_name: kanbann_web
+    container_name: kanvan_web
     command: >
       sh -c "python migrate.py && python seed.py &&
              uvicorn api:app --host 0.0.0.0 --port 8000"
     environment:
-      - DATABASE_URL=${WEB_DATABASE_URL:-postgresql://kanbann:kanbann@db:5432/kanbann}
+      - DATABASE_URL=${WEB_DATABASE_URL:-postgresql://kanvan:kanvan@db:5432/kanvan}
       - JWT_SECRET=${JWT_SECRET:-dev-secret-change-me}
       - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
@@ -44,11 +44,11 @@ services:
 
 #  bot:
 #    build: .
-#    container_name: kanbann_bot
+#    container_name: kanvan_bot
 #    command: python main.py
 #    environment:
 #      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
-#      - DATABASE_URL=${BOT_DATABASE_URL:-postgresql://kanbann:kanbann@db:5432/kanbann}
+#      - DATABASE_URL=${BOT_DATABASE_URL:-postgresql://kanvan:kanvan@db:5432/kanvan}
 #      - OPENAI_API_KEY=${OPENAI_API_KEY}
 #      - JWT_SECRET=${JWT_SECRET:-dev-secret-change-me}
 #    volumes:
@@ -59,4 +59,4 @@ services:
 #    restart: always
 
 volumes:
-  kanbann_pgdata:
+  kanvan_pgdata:

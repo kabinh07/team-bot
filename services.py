@@ -1,5 +1,5 @@
 """Task-timer and dashboard-aggregation logic shared by the REST API and the
-Telegram bot. Ported verbatim (same semantics) from the web/kanban mock:
+Telegram bot. Ported verbatim (same semantics) from the web/kanvan mock:
 elapsed time accrues while a task is in todo/inprogress, is banked into
 accumulated_ms when it stops (review/done), and resumes when a task is
 dragged back into todo/inprogress.

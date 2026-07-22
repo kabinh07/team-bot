@@ -23,7 +23,7 @@ from schemas import (
 )
 
 logging.basicConfig(level=logging.INFO)
-app = FastAPI(title="Kanbann API")
+app = FastAPI(title="Kanvan API")
 
 
 # ---- auth ----
@@ -343,7 +343,7 @@ def engagement_report(month: str | None = None, department: int | None = None,
         today = datetime.now(timezone.utc)
         year, mon = today.year, today.month
     csv_text = services.engagement_report_csv(db, year, mon, department)
-    filename = f"kanbann-engagement-{year:04d}-{mon:02d}.csv"
+    filename = f"kanvan-engagement-{year:04d}-{mon:02d}.csv"
     return Response(
         content=csv_text, media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
@@ -351,6 +351,6 @@ def engagement_report(month: str | None = None, department: int | None = None,
 
 
 # ---- portal static files (mounted last so /api/* takes precedence) ----
-_web_dir = os.path.join(os.path.dirname(__file__), "web", "kanban")
+_web_dir = os.path.join(os.path.dirname(__file__), "web", "kanvan")
 if os.path.isdir(_web_dir):
     app.mount("/", StaticFiles(directory=_web_dir, html=True), name="portal")

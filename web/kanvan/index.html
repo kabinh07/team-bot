@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Kanbann</title>
+<title>Kanvan</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -71,7 +71,7 @@ function avatarStyle(color) {
 }
 
 // ---- API client ----
-const TOKEN_KEY = 'kanbann_token';
+const TOKEN_KEY = 'kanvan_token';
 const getToken = () => localStorage.getItem(TOKEN_KEY);
 const setToken = (t) => t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY);
 
@@ -147,7 +147,7 @@ function LoginScreen({ onLogin }) {
       <form onSubmit={submit} style={sx("background:#fff;border-radius:16px;padding:32px 28px;width:340px;max-width:92vw;box-shadow:0 1px 2px rgba(20,20,15,0.04);border:1px solid #e7e4dc;")}>
         <div style={sx("display:flex;align-items:center;gap:10px;margin-bottom:24px;")}>
           <div style={sx("width:34px;height:34px;border-radius:9px;background:#0f6e5c;display:flex;align-items:center;justify-content:center;color:#fff;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:16px;")}>K</div>
-          <span style={sx("font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:20px;letter-spacing:-0.01em;")}>Kanbann</span>
+          <span style={sx("font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:20px;letter-spacing:-0.01em;")}>Kanvan</span>
         </div>
         {mode === 'signup' && (
           <React.Fragment>
@@ -519,7 +519,7 @@ function App() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'kanbann-engagement-' + month + '.csv';
+    a.download = 'kanvan-engagement-' + month + '.csv';
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -547,7 +547,7 @@ function App() {
       <div style={sx("height:66px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 28px;border-bottom:1px solid #e7e4dc;background:#ffffff;")}>
         <div style={sx("display:flex;align-items:center;gap:10px;")}>
           <div style={sx("width:30px;height:30px;border-radius:8px;background:#0f6e5c;display:flex;align-items:center;justify-content:center;color:#fff;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:15px;")}>K</div>
-          <span style={sx("font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:19px;letter-spacing:-0.01em;")}>Kanbann</span>
+          <span style={sx("font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:19px;letter-spacing:-0.01em;")}>Kanvan</span>
         </div>
         <div style={sx("display:flex;align-items:center;gap:16px;")}>
           <div style={sx("position:relative;")}>

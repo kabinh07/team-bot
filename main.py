@@ -65,7 +65,7 @@ def dept_scope(user: User):
     return user.department_id if user.department_id is not None else NO_DEPARTMENT
 
 
-LINK_HINT = "🔗 Your Telegram isn't linked to a Kanbann account yet.\nGet a code from the portal (Settings) and send /link <code>."
+LINK_HINT = "🔗 Your Telegram isn't linked to a Kanvan account yet.\nGet a code from the portal (Settings) and send /link <code>."
 
 
 async def require_linked_user(update: Update, db):
@@ -96,7 +96,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         else:
             await update.message.reply_text(
-                "👋 Hi! I'm the Kanbann bot.\n" + LINK_HINT
+                "👋 Hi! I'm the Kanvan bot.\n" + LINK_HINT
             )
     finally:
         db.close()
