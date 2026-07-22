@@ -78,7 +78,7 @@ class User(Base):
     role = Column(SAEnum(*ROLES, name='user_role'), nullable=False, default=ROLE_ENGINEER)
     telegram_id = Column(String, unique=True, nullable=True, index=True)
     department_id = Column(Integer, ForeignKey('departments.id'), nullable=True, index=True)
-    can_create_projects = Column(Integer, nullable=False, default=0)
+    can_create_projects = Column(Integer, nullable=False, default=0, server_default='0')
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     department = relationship('Department')
