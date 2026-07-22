@@ -1,19 +1,19 @@
 services:
-  db:
-    image: postgres:16-alpine
-    container_name: kanbann_db
-    environment:
-      - POSTGRES_USER=${POSTGRES_USER:-kanbann}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-kanbann}
-      - POSTGRES_DB=${POSTGRES_DB:-kanbann}
-    volumes:
-      - kanbann_pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-kanbann}"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-    restart: always
+#  db:
+#    image: postgres:16-alpine
+#    container_name: kanbann_db
+#    environment:
+#      - POSTGRES_USER=${POSTGRES_USER:-kanbann}
+#      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-kanbann}
+#      - POSTGRES_DB=${POSTGRES_DB:-kanbann}
+#    volumes:
+#      - kanbann_pgdata:/var/lib/postgresql/data
+#    healthcheck:
+#      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-kanbann}"]
+#      interval: 5s
+#      timeout: 5s
+#      retries: 10
+#    restart: always
 
   web:
     build: .
@@ -31,9 +31,9 @@ services:
       - "${WEB_PORT:-8000}:8000"
     volumes:
       - ./:/app
-    depends_on:
-      db:
-        condition: service_healthy
+ #   depends_on:
+ #     db:
+ #       condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/"]
       interval: 5s
@@ -42,21 +42,21 @@ services:
       start_period: 10s
     restart: always
 
-  bot:
-    build: .
-    container_name: kanbann_bot
-    command: python main.py
-    environment:
-      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
-      - DATABASE_URL=${BOT_DATABASE_URL:-postgresql://kanbann:kanbann@db:5432/kanbann}
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - JWT_SECRET=${JWT_SECRET:-dev-secret-change-me}
-    volumes:
-      - ./:/app
-    depends_on:
-      web:
-        condition: service_healthy
-    restart: always
+#  bot:
+#    build: .
+#    container_name: kanbann_bot
+#    command: python main.py
+#    environment:
+#      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
+#      - DATABASE_URL=${BOT_DATABASE_URL:-postgresql://kanbann:kanbann@db:5432/kanbann}
+#      - OPENAI_API_KEY=${OPENAI_API_KEY}
+#      - JWT_SECRET=${JWT_SECRET:-dev-secret-change-me}
+#    volumes:
+#      - ./:/app
+#    depends_on:
+#      web:
+#        condition: service_healthy
+#    restart: always
 
 volumes:
   kanbann_pgdata:
