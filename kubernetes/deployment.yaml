@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kanvan-deployment
+  namespace: polygon-explore
+  labels:
+    app: kanvan
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kanvan
+  template:
+    metadata:
+      labels:
+        app: kanvan
+    spec:
+      containers:
+        - name: kanvan
+          securityContext:
+            privileged: true
+          image: kabinh07/kanvan:latest
+          ports:
+            - containerPort: 8000
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: kanvan-secret
+                  key: DATABASE_URL
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: kanvan-secret
+                  key: JWT_SECRET
+            - name: ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: kanvan-secret
+                  key: ADMIN_USERNAME
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: kanvan-secret
+                  key: ADMIN_PASSWORD
+            - name: SEED_DEMO
+              valueFrom:
+                secretKeyRef:
+                  name: kanvan-secret
+                  key: SEED_DEMO
+          command: ["/bin/bash", "-c"]
+          args: ["python migrate.py && python seed.py && uvicorn api:app --host 0.0.0.0 --port 8000"]
+      imagePullSecrets:
+        - name: regcred

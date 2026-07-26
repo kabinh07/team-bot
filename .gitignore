@@ -1,6 +1,7 @@
 .idea
 .vscode
 .env
+kubernetes/secret.yaml
 venv
 __pycache__
 alembic/versions
