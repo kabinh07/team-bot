@@ -10,6 +10,12 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class PasswordChangeRequest(BaseModel):
+    currentPassword: str
+    newPassword: str
+    confirmPassword: str
+
+
 class SignupRequest(BaseModel):
     username: str
     password: str

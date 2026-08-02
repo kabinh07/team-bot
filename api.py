@@ -17,9 +17,10 @@ from models import (
     Task, User, _initials, now_ms,
 )
 from schemas import (
-    DepartmentCreateRequest, LoginRequest, ProjectCreateRequest,
-    ProjectUpdateRequest, SignupRequest, TaskCreateRequest,
-    TaskUpdateRequest, UserCreateRequest, UserUpdateRequest,
+    DepartmentCreateRequest, LoginRequest, PasswordChangeRequest,
+    ProjectCreateRequest, ProjectUpdateRequest, SignupRequest,
+    TaskCreateRequest, TaskUpdateRequest, UserCreateRequest,
+    UserUpdateRequest,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -61,6 +62,19 @@ def signup(body: SignupRequest, db=Depends(get_db)):
 @app.get("/api/auth/me")
 def me(user: User = Depends(current_user)):
     return user.to_public()
+
+
+@app.post("/api/auth/change-password")
+def change_password(body: PasswordChangeRequest, user: User = Depends(current_user), db=Depends(get_db)):
+    if not body.currentPassword or not body.newPassword or not body.confirmPassword:
+        raise HTTPException(status_code=422, detail="Current password, new password and confirmation are required")
+    if body.newPassword != body.confirmPassword:
+        raise HTTPException(status_code=422, detail="New password and confirmation do not match")
+    if not verify_password(body.currentPassword, user.password_hash):
+        raise HTTPException(status_code=401, detail="Current password is incorrect")
+    user.password_hash = hash_password(body.newPassword)
+    db.commit()
+    return {"ok": True}
 
 
 # ---- departments ----

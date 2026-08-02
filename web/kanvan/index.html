@@ -263,6 +263,10 @@ function App() {
   const [weeklySummary, setWeeklySummary] = useState(false);
   const [linkCode, setLinkCode] = useState(null);
   const [linkCodeError, setLinkCodeError] = useState('');
+  const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
+  const [passwordFormError, setPasswordFormError] = useState('');
+  const [passwordFormSuccess, setPasswordFormSuccess] = useState('');
+  const [passwordFormBusy, setPasswordFormBusy] = useState(false);
 
   const [adminView, setAdminView] = useState('dashboard');
   const [dashboardPanel, setDashboardPanel] = useState('leaderboard');
@@ -499,6 +503,34 @@ function App() {
     }
   }
 
+  async function submitPasswordChange(e) {
+    e.preventDefault();
+    setPasswordFormError('');
+    setPasswordFormSuccess('');
+    if (!passwordForm.currentPassword || !passwordForm.newPassword || !passwordForm.confirmPassword) {
+      setPasswordFormError('Please fill in all password fields.');
+      return;
+    }
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      setPasswordFormError('New password and confirmation do not match.');
+      return;
+    }
+    setPasswordFormBusy(true);
+    try {
+      await API.post('/api/auth/change-password', {
+        currentPassword: passwordForm.currentPassword,
+        newPassword: passwordForm.newPassword,
+        confirmPassword: passwordForm.confirmPassword,
+      });
+      setPasswordFormSuccess('Password updated successfully.');
+      setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+    } catch (err) {
+      setPasswordFormError(err.message);
+    } finally {
+      setPasswordFormBusy(false);
+    }
+  }
+
   async function downloadReport(month) {
     const token = getToken();
     let res;
@@ -557,7 +589,7 @@ function App() {
             {showProfileMenu && (
               <div style={sx("position:absolute;top:38px;right:0;background:#fff;border:1px solid #e7e4dc;border-radius:12px;box-shadow:0 8px 24px rgba(20,18,14,0.12);width:200px;padding:8px;z-index:60;")}>
                 <div style={sx("padding:8px 10px;font-size:13px;font-weight:600;color:#1b1b18;border-bottom:1px solid #f1efe9;margin-bottom:6px;")}>{profileIdentity.name}</div>
-                <button onClick={() => { setLinkCode(null); setLinkCodeError(''); setShowSettingsModal(true); setShowProfileMenu(false); }} style={sx("width:100%;text-align:left;background:transparent;border:none;padding:8px 10px;border-radius:8px;font-size:13px;color:#3f3d38;font-family:'IBM Plex Sans',sans-serif;cursor:pointer;")}>Settings</button>
+                <button onClick={() => { setLinkCode(null); setLinkCodeError(''); setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' }); setPasswordFormError(''); setPasswordFormSuccess(''); setShowSettingsModal(true); setShowProfileMenu(false); }} style={sx("width:100%;text-align:left;background:transparent;border:none;padding:8px 10px;border-radius:8px;font-size:13px;color:#3f3d38;font-family:'IBM Plex Sans',sans-serif;cursor:pointer;")}>Settings</button>
                 <button onClick={handleLogout} style={sx("width:100%;text-align:left;background:transparent;border:none;padding:8px 10px;border-radius:8px;font-size:13px;color:#b91c1c;font-family:'IBM Plex Sans',sans-serif;cursor:pointer;")}>Log out</button>
               </div>
             )}
@@ -848,6 +880,22 @@ function App() {
               <div onClick={() => setWeeklySummary(v => !v)} style={{ width: '38px', height: '22px', borderRadius: '999px', background: weeklySummary ? '#0f6e5c' : '#e7e4dc', position: 'relative', cursor: 'pointer', transition: 'background .15s ease' }}>
                 <div style={{ width: '18px', height: '18px', borderRadius: '50%', background: '#fff', position: 'absolute', top: '2px', left: weeklySummary ? '18px' : '2px', transition: 'left .15s ease', boxShadow: '0 1px 2px rgba(0,0,0,0.2)' }}></div>
               </div>
+            </div>
+
+            <div style={sx("padding:14px 0 6px;")}>
+              <div style={sx("font-size:13px;font-weight:600;color:#1b1b18;margin-bottom:2px;")}>Change password</div>
+              <div style={sx("font-size:11.5px;color:#8a877e;margin-bottom:10px;")}>Use your current password to set a new one.</div>
+              <form onSubmit={submitPasswordChange}>
+                <label style={sx("font-size:12px;color:#6b6b63;font-weight:600;display:block;margin-bottom:5px;")}>Current password</label>
+                <input type="password" value={passwordForm.currentPassword} onChange={(e) => setPasswordForm(f => ({ ...f, currentPassword: e.target.value }))} style={sx("width:100%;font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;padding:8px 10px;border-radius:8px;border:1px solid #e7e4dc;margin-bottom:10px;")} />
+                <label style={sx("font-size:12px;color:#6b6b63;font-weight:600;display:block;margin-bottom:5px;")}>New password</label>
+                <input type="password" value={passwordForm.newPassword} onChange={(e) => setPasswordForm(f => ({ ...f, newPassword: e.target.value }))} style={sx("width:100%;font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;padding:8px 10px;border-radius:8px;border:1px solid #e7e4dc;margin-bottom:10px;")} />
+                <label style={sx("font-size:12px;color:#6b6b63;font-weight:600;display:block;margin-bottom:5px;")}>Confirm password</label>
+                <input type="password" value={passwordForm.confirmPassword} onChange={(e) => setPasswordForm(f => ({ ...f, confirmPassword: e.target.value }))} style={sx("width:100%;font-family:'IBM Plex Sans',sans-serif;font-size:13.5px;padding:8px 10px;border-radius:8px;border:1px solid #e7e4dc;margin-bottom:10px;")} />
+                {passwordFormError && <div style={sx("font-size:12px;color:#b91c1c;margin-bottom:8px;")}>{passwordFormError}</div>}
+                {passwordFormSuccess && <div style={sx("font-size:12px;color:#0f6e5c;margin-bottom:8px;")}>{passwordFormSuccess}</div>}
+                <button type="submit" disabled={passwordFormBusy} style={sx("background:#0f6e5c;color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:12.5px;font-weight:600;font-family:'IBM Plex Sans',sans-serif;cursor:pointer;opacity:" + (passwordFormBusy ? '0.7' : '1') + ";")}>{passwordFormBusy ? 'Updating…' : 'Update password'}</button>
+              </form>
             </div>
 
             <div style={sx("padding:14px 0 6px;")}>
